@@ -1,0 +1,8 @@
+{
+  "id": 2,
+  "name": "MOLA MEGDR topography 4 pix/deg",
+  "kind": "numeric",
+  "source": "NASA PDS Geosciences",
+  "page": "https://pds-geosciences.wustl.edu/missions/mgs/megdr.html",
+  "note": "Topograf\u00eda original MEGDR. Alternativa de baja resoluci\u00f3n al DEM 463 m."
+}

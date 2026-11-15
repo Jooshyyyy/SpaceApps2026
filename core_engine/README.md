@@ -22,9 +22,10 @@ never reads the source GeoTIFF. It rejects unknown format tags, invalid grid
 shapes and binary files whose exact byte count disagrees with the metadata.
 
 Cost `0` is unknown ground, `1..254` is traversable with increasing terrain
-penalty, and `255` is impassable. `radiation.bin` is optional. If absent,
-radiation-aware routing is unavailable and the output says
-`"radiation_available": false`; no radiation grid is invented.
+penalty, and `255` is impassable. `radiation.bin` and `thermal_inertia.bin` are
+optional. When present, routing accounts for modeled exposure and loose-soil
+drag. The PLSS uses the calibrated RAD baseline recorded in `aoi.json`. Missing
+layers are reported explicitly; the engine never invents them.
 
 ## Commands
 
@@ -43,8 +44,10 @@ Route and simulation options:
 
 - `--slope-weight N`: terrain penalty scale, default `4`.
 - `--climb-weight N`: additional cost per uphill metre, default `5`.
-- `--radiation-weight N`: exposure weight, default `0`; it has an effect only
+- `--radiation-weight N`: exposure weight, default `1`; it has an effect only
   when `radiation.bin` exists.
+- `--soil-weight N`: loose-regolith penalty, default `1`; it has an effect only
+  when `thermal_inertia.bin` exists.
 - `--orthogonal`: disable diagonal steps.
 - `--allow-corner-cutting`: permit diagonals whose two adjacent cells are not
   both traversable. The safe default forbids this.
@@ -72,15 +75,9 @@ events and are not inferred here.
 
 ## Observed real-AOI run
 
-On the frozen 1000 x 1000 Lower Mount Sharp AOI, routing from `(500,500)` to
-`(600,650)` with default weights found a 152-cell path of `191.606945` m, with
-`31.857422` m ascent and `65,630` expanded nodes. Five fresh CLI executions
-measured A* itself (not grid loading) at `14.930533`, `13.281220`, `17.413200`,
-`13.401637` and `14.526210` ms: minimum `13.281220`, median `14.526210`, maximum
-`17.413200` ms. These are observations on this development host, not a latency
-guarantee.
-
-The matching round-trip simulation was feasible: outbound `265.838625` s,
-inbound/TTR `265.584117` s, oxygen remaining at the objective `1.146264` kg,
-battery remaining `237.775920` Wh, total dose `0.004429` mSv and alert mask `0`.
-The real AOI has no radiation layer, so radiation-aware routing was not used.
+On the 1000 x 1000 Curiosity 2025 EVA site, routing from `(500,500)` to
+`(550,550)` with all environment layers found a `71.17` m path. Mean thermal
+inertia along it was `137.13` SI and the calibrated round-trip dose was
+`0.00314` mSv. The PLSS projection remained feasible with `1.1842` kg oxygen
+and `246.32` Wh at the objective. These are observations on this development
+host and dataset, not performance or hardware guarantees.

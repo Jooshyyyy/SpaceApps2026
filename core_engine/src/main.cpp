@@ -66,7 +66,8 @@ void usage(std::ostream& out) {
         << "Route options:\n"
         << "  --slope-weight N          Terrain penalty scale (default 4)\n"
         << "  --climb-weight N          Cost per metre climbed (default 5)\n"
-        << "  --radiation-weight N      Exposure weight; needs radiation.bin (default 0)\n"
+        << "  --radiation-weight N      Exposure weight; needs radiation.bin (default 1)\n"
+        << "  --soil-weight N           Soil drag penalty; needs thermal_inertia.bin (default 1)\n"
         << "  --orthogonal              Disable diagonal movement\n"
         << "  --allow-corner-cutting    Permit diagonal movement between blocked cells\n\n"
         << "Simulation options:\n"
@@ -189,6 +190,7 @@ eva::RouteParams route_params(const Options& options) {
     params.slope_weight = options.number_or("--slope-weight", params.slope_weight);
     params.climb_weight = options.number_or("--climb-weight", params.climb_weight);
     params.radiation_weight = options.number_or("--radiation-weight", params.radiation_weight);
+    params.soil_weight = options.number_or("--soil-weight", params.soil_weight);
     params.allow_diagonal = !options.enabled("--orthogonal");
     params.no_corner_cutting = !options.enabled("--allow-corner-cutting");
     return params;
@@ -209,6 +211,8 @@ void print_route(std::ostream& out, const eva::Grid& grid, const eva::Route& rou
         << ",\"length_m\":" << number(route.length_m)
         << ",\"climb_m\":" << number(route.climb_m)
         << ",\"descent_m\":" << number(route.descent_m)
+        << ",\"total_radiation\":" << number(route.total_radiation)
+        << ",\"mean_thermal_inertia\":" << number(route.mean_thermal_inertia)
         << ",\"expanded\":" << route.expanded
         << ",\"elapsed_ms\":" << number(route.elapsed_ms);
     if (!with_path) return;
@@ -221,7 +225,16 @@ void print_route(std::ostream& out, const eva::Grid& grid, const eva::Route& rou
         if (i != 0) out << ',';
         out << "{\"row\":" << row << ",\"col\":" << col
             << ",\"elevation_m\":"
-            << number(static_cast<double>(grid.elevation[static_cast<std::size_t>(cell)])) << '}';
+            << number(static_cast<double>(grid.elevation[static_cast<std::size_t>(cell)]));
+        if (grid.has_radiation()) {
+            out << ",\"radiation\":"
+                << number(static_cast<double>(grid.radiation[static_cast<std::size_t>(cell)]));
+        }
+        if (grid.has_thermal_inertia()) {
+            out << ",\"thermal_inertia\":"
+                << number(static_cast<double>(grid.thermal_inertia[static_cast<std::size_t>(cell)]));
+        }
+        out << '}';
     }
     out << ']';
 }
@@ -254,14 +267,24 @@ int command_info(const Options& options) {
               << ",\"north\":" << number(meta.north) << "}}"
               << ",\"traversable_cells\":" << traversable
               << ",\"non_traversable_cells\":" << grid.cells() - traversable
-              << ",\"radiation_available\":" << boolean(grid.has_radiation()) << "}\n";
+              << ",\"radiation_available\":" << boolean(grid.has_radiation())
+              << ",\"radiation_baseline_msv_per_h\":" << number(meta.radiation_baseline_msv_per_h)
+              << ",\"thermal_inertia_available\":" << boolean(grid.has_thermal_inertia())
+              << ",\"environment_available\":" << boolean(meta.environment_available);
+    if (meta.environment_available) {
+        std::cout << ",\"environment\":{\"ambient_temperature_c\":" << number(meta.ambient_temperature_c)
+                  << ",\"ambient_pressure_pa\":" << number(meta.ambient_pressure_pa)
+                  << ",\"mean_thermal_inertia\":" << number(meta.mean_thermal_inertia)
+                  << ",\"terrain_traction\":" << quote(meta.terrain_traction) << '}';
+    }
+    std::cout << "}\n";
     return 0;
 }
 
 const std::set<std::string>& route_options() {
     static const std::set<std::string> allowed = {
         "--dir", "--start", "--goal", "--slope-weight", "--climb-weight",
-        "--radiation-weight", "--orthogonal", "--allow-corner-cutting"};
+        "--radiation-weight", "--soil-weight", "--orthogonal", "--allow-corner-cutting"};
     return allowed;
 }
 
@@ -277,7 +300,8 @@ int command_route(const Options& options) {
     print_start_goal(std::cout, start, goal);
     std::cout << ',';
     print_route(std::cout, grid, route, true);
-    std::cout << ",\"radiation_available\":" << boolean(grid.has_radiation()) << "}\n";
+    std::cout << ",\"radiation_available\":" << boolean(grid.has_radiation())
+              << ",\"thermal_inertia_available\":" << boolean(grid.has_thermal_inertia()) << "}\n";
     return 0;
 }
 
@@ -294,6 +318,7 @@ int command_sim(const Options& options) {
     const eva::Route inbound = eva::find_route(grid, goal.row, goal.col, start.row, start.col, params);
 
     eva::PlssConfig config;
+    config.dose_rate_msv_per_h = grid.meta.radiation_baseline_msv_per_h;
     config.o2_capacity_kg = options.number_or("--o2-capacity", config.o2_capacity_kg, true);
     config.battery_capacity_wh =
         options.number_or("--battery-capacity", config.battery_capacity_wh, true);
@@ -332,7 +357,8 @@ int command_sim(const Options& options) {
         if (i != 0) std::cout << ',';
         std::cout << quote(sim.reasons[i]);
     }
-    std::cout << "],\"radiation_available\":" << boolean(grid.has_radiation()) << "}\n";
+    std::cout << "],\"radiation_available\":" << boolean(grid.has_radiation())
+              << ",\"thermal_inertia_available\":" << boolean(grid.has_thermal_inertia()) << "}\n";
     return 0;
 }
 

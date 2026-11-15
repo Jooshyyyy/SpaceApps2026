@@ -35,7 +35,9 @@ There is no SharedArrayBuffer requirement on native Flutter.
 ## What clients receive
 
 1. Text `hello`: AOI metadata from `eva_engine info`, cell size/bbox, altitude
-   datum, protocol version and `telemetry_kind: "planned_projection"`.
+   datum, protocol version and `telemetry_kind: "planned_projection"`. After
+   the environment ETL it also carries the RAD baseline, temperature, pressure,
+   mean thermal inertia and terrain-traction classification.
 2. Text `route_update`: the unmodified `eva_engine sim --path` result, the
    control cause, and a successful-plan revision counter (initially `1`).
 3. Binary frames at 10 Hz, exactly as specified in
@@ -49,6 +51,8 @@ against the capacities at EVA start; dose combines accumulated travel dose and
 the current round-trip projection. TTR is the engine's inbound-leg estimate.
 Positions normally come from explicit controls; only `--demo-step-ms` enables
 synthetic route following. Repeated 10 Hz publications do not consume tanks.
+High-precision dose remains present in `route_update` JSON even when a short
+walk rounds to zero in the frozen binary field's 0.01 mSv units.
 When an emergency targets the refuge, the outbound path is the evacuation path;
 its `outbound.sim.time_s` is the evacuation ETA. The frame's TTR retains the
 engine's inbound-leg convention, and is not relabeled as a live evacuation ETA.

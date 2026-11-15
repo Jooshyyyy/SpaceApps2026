@@ -1,0 +1,8 @@
+{
+  "id": 21,
+  "name": "MRO SPICE SPK (predicted PSP)",
+  "kind": "orbital",
+  "source": "NASA NAIF / MRO",
+  "page": "https://naif.jpl.nasa.gov/pub/naif/MRO/kernels/spk/",
+  "note": "Efemerides orbitales. No da cobertura de radio por s\u00ed solo."
+}

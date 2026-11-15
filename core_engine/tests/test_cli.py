@@ -11,7 +11,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-ENGINE = ROOT / "eva_engine"
+ENGINE = ROOT / "eva_engine.exe" if (ROOT / "eva_engine.exe").exists() else ROOT / "eva_engine"
 
 
 def invoke(*args):
@@ -79,6 +79,38 @@ class EngineCliTest(unittest.TestCase):
         self.assertGreaterEqual(payload["elapsed_ms"], 0.0)
         self.assertGreater(payload["expanded"], 0)
         self.assertFalse(payload["radiation_available"])
+
+    def test_environment_layers_feed_info_routing_and_plss_dose(self):
+        metadata = json.loads((self.data / "aoi.json").read_text(encoding="utf-8"))
+        metadata["grids"] = {
+            "radiation": {"calibrated_baseline_msv_per_h": 0.04}
+        }
+        metadata["environment_summary"] = {
+            "radiation_dose_rate_msv_h": 0.04,
+            "mean_surface_temp_c": -20.0,
+            "ambient_pressure_pa": 730.0,
+            "mean_thermal_inertia": 140.0,
+            "terrain_traction": "low/loose",
+        }
+        (self.data / "aoi.json").write_text(json.dumps(metadata), encoding="utf-8")
+        (self.data / "radiation.bin").write_bytes(struct.pack("<25f", *([0.0] * 25)))
+        (self.data / "thermal_inertia.bin").write_bytes(struct.pack("<25f", *([140.0] * 25)))
+
+        info = json.loads(invoke("info", "--dir", self.data).stdout)
+        self.assertTrue(info["radiation_available"])
+        self.assertTrue(info["thermal_inertia_available"])
+        self.assertTrue(info["environment_available"])
+        self.assertEqual(info["environment"]["terrain_traction"], "low/loose")
+        self.assertAlmostEqual(info["radiation_baseline_msv_per_h"], 0.04)
+
+        result = invoke("sim", "--dir", self.data, "--start", "0,0", "--goal", "0,4")
+        payload = json.loads(result.stdout)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        modeled_time = (payload["outbound"]["sim"]["time_s"] +
+                        payload["inbound"]["sim"]["time_s"])
+        self.assertAlmostEqual(payload["dose_total_msv"], 0.04 * modeled_time / 3600.0,
+                               places=10)
+        self.assertAlmostEqual(payload["outbound"]["route"]["mean_thermal_inertia"], 140.0)
 
     def test_route_reports_unreachable_goal_without_process_error(self):
         costs = bytearray([1] * 25)

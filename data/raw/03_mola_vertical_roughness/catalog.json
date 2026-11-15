@@ -1,0 +1,8 @@
+{
+  "id": 3,
+  "name": "MOLA Vertical Roughness RGB",
+  "kind": "visual",
+  "source": "NASA MGS / ASU",
+  "page": "https://www.mars.asu.edu/data/mola_roughness/",
+  "note": "Visual. RGB = rugosidad a 0.6 / 2.4 / 9.2 km. No usar como valores f\u00edsicos."
+}

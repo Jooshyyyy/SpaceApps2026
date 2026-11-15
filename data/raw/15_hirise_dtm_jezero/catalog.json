@@ -1,0 +1,8 @@
+{
+  "id": 15,
+  "name": "Mars 2020 HiRISE DTM Jezero 1 m",
+  "kind": "numeric",
+  "source": "NASA / USGS / HiRISE",
+  "page": "https://astrogeology.usgs.gov/search/map/mars_2020_terrain_relative_navigation_hirise_orthorectified_image_mosaic",
+  "note": "Alta prioridad para rutas locales en Jezero, 1 m/p\u00edxel."
+}

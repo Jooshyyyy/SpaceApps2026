@@ -30,6 +30,12 @@ struct AoiMeta {
     double east = 0.0;
     double north = 0.0;
     double max_slope_deg = 0.0;
+    double radiation_baseline_msv_per_h = 0.03;
+    bool environment_available = false;
+    double ambient_temperature_c = 0.0;
+    double ambient_pressure_pa = 0.0;
+    double mean_thermal_inertia = 0.0;
+    std::string terrain_traction;
     float nodata = 0.0f;
 };
 
@@ -39,6 +45,7 @@ struct Grid {
     std::vector<float> slope;       // degrees, row-major, NaN = unknown
     std::vector<uint8_t> cost;      // 0 no data, 1..254 traversable, 255 wall
     std::vector<float> radiation;   // optional, empty when layer 1 omits it
+    std::vector<float> thermal_inertia; // optional, SI units J/(m^2 K s^0.5)
 
     int rows() const { return meta.rows; }
     int cols() const { return meta.cols; }
@@ -53,6 +60,7 @@ struct Grid {
         return row >= 0 && col >= 0 && row < meta.rows && col < meta.cols;
     }
     bool has_radiation() const { return !radiation.empty(); }
+    bool has_thermal_inertia() const { return !thermal_inertia.empty(); }
 
     // A cell is traversable when it carries a usable cost and a finite
     // elevation. Cost 0 means "no data" and 255 means "impassable"; neither is

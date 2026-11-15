@@ -1,0 +1,8 @@
+{
+  "id": 5,
+  "name": "MGS TES Derived Thermal Inertia Maps",
+  "kind": "numeric",
+  "source": "NASA PDS / TES",
+  "page": "https://pds-geosciences.wustl.edu/missions/mgs/tes-timap.html",
+  "note": "Inercia t\u00e9rmica num\u00e9rica (Putzig & Mellon 2007). No es resistencia mec\u00e1nica."
+}

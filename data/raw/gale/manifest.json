@@ -1,0 +1,71 @@
+{
+  "created_utc": "2026-11-15T04:46:35.174245+00:00",
+  "region": "gale",
+  "bbox_lonlat_east": [
+    136.85,
+    -5.1,
+    138.0,
+    -4.2
+  ],
+  "reference": "NASA/PDS/USGS. Mars coordinates, NOT terrestrial WGS84.",
+  "products": [
+    {
+      "id": "rad_sample",
+      "name": "MSL RAD RDR: ejemplo de radiacion (Curiosity sol 805)",
+      "use": "Medidas locales de radiacion ionizante",
+      "source_url": "https://pds-ppi.igpp.ucla.edu/data/MSL-M-RAD-3-RDR-V1.0/DATA/SOL_00805_00938/RAD_RDR_2014_314_16_54_0805_V00.TXT",
+      "notes": "Archivo y etiqueta PDS para un solo sol, no mapa global.",
+      "files": [
+        {
+          "status": "ok",
+          "path": "data\\raw\\gale\\rad_sample\\RAD_RDR_2014_314_16_54_0805_V00.TXT",
+          "bytes": 29336564,
+          "sha256": "17487bce7e4a7c71c53c0ba313390694dc092cb2557c2405ce68bc823eba1f34",
+          "url_final": "https://pds-ppi.igpp.ucla.edu/data/MSL-M-RAD-3-RDR-V1.0/DATA/SOL_00805_00938/RAD_RDR_2014_314_16_54_0805_V00.TXT"
+        },
+        {
+          "status": "ok",
+          "path": "data\\raw\\gale\\rad_sample\\RAD_RDR_2014_314_16_54_0805_V00.LBL",
+          "bytes": 1298240,
+          "sha256": "7f0e3695ee832a050d119a211a53addfc74fffcd6b74166abecb68634e800816",
+          "url_final": "https://pds-ppi.igpp.ucla.edu/data/MSL-M-RAD-3-RDR-V1.0/DATA/SOL_00805_00938/RAD_RDR_2014_314_16_54_0805_V00.LBL"
+        }
+      ],
+      "status": "ok"
+    },
+    {
+      "id": "rems_pressure_sample",
+      "name": "MSL REMS PA: presion calibrada (Curiosity sol 1)",
+      "use": "Presion atmosferica local en Gale",
+      "source_url": "https://atmos.nmsu.edu/PDS/data/PDS4/msl_rems_bundle/data_calibrated/SOL_00001_00089/SOL00001/RME_397535244RNV00010000000_______PA.TAB",
+      "notes": "Solo producto del sensor PA; no equivale a todos los sensores REMS.",
+      "files": [
+        {
+          "status": "ok",
+          "path": "data\\raw\\gale\\rems_pressure_sample\\RME_397535244RNV00010000000_______PA.TAB",
+          "bytes": 494250,
+          "sha256": "56320ebb376a94c5653db4b73bf9551bcce8dae9399dcc0687137ad840edab23",
+          "url_final": "https://atmos.nmsu.edu/PDS/data/PDS4/msl_rems_bundle/data_calibrated/SOL_00001_00089/SOL00001/RME_397535244RNV00010000000_______PA.TAB"
+        }
+      ],
+      "status": "ok"
+    },
+    {
+      "id": "tes_thermal",
+      "name": "MGS TES Derived Thermal Inertia Maps",
+      "use": "Inercia termica del suelo",
+      "source_url": "https://pds-geosciences.wustl.edu/mgs/mgs-m-tes-5-timap-v1/mgst_9001.zip",
+      "notes": "Incluye mascaras de interpolacion y etiquetas PDS en el ZIP.",
+      "files": [
+        {
+          "status": "ok",
+          "path": "data\\raw\\gale\\tes_thermal\\mgst_9001.zip",
+          "bytes": 69628554,
+          "sha256": "407ec6d61f24a0f5b58315449a14bf4fb9300ae7d5c789646853c8b7e4b94fe3",
+          "url_final": "https://pds-geosciences.wustl.edu/mgs/mgs-m-tes-5-timap-v1/mgst_9001.zip"
+        }
+      ],
+      "status": "ok"
+    }
+  ]
+}

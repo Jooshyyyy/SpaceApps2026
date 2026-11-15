@@ -85,8 +85,25 @@ AoiMeta read_meta(const std::string& meta_path) {
     meta.north = bbox.at("north").number();
 
     meta.max_slope_deg = document.at("policy").at("max_slope_deg").number();
+    if (document.has("grids") && document.at("grids").has("radiation") &&
+        document.at("grids").at("radiation").has("calibrated_baseline_msv_per_h")) {
+        const double baseline = document.at("grids").at("radiation")
+                                    .at("calibrated_baseline_msv_per_h").number();
+        if (std::isfinite(baseline) && baseline > 0.0) {
+            meta.radiation_baseline_msv_per_h = baseline;
+        }
+    }
     if (document.has("source") && document.at("source").has("nodata")) {
         meta.nodata = static_cast<float>(document.at("source").at("nodata").number());
+    }
+    if (document.has("environment_summary")) {
+        const Json& env = document.at("environment_summary");
+        meta.radiation_baseline_msv_per_h = env.at("radiation_dose_rate_msv_h").number();
+        meta.ambient_temperature_c = env.at("mean_surface_temp_c").number();
+        meta.ambient_pressure_pa = env.at("ambient_pressure_pa").number();
+        meta.mean_thermal_inertia = env.at("mean_thermal_inertia").number();
+        meta.terrain_traction = std::string(env.at("terrain_traction").string());
+        meta.environment_available = true;
     }
     return meta;
 }
@@ -132,6 +149,15 @@ Grid load_grid(const std::string& dir) {
         if (probe.good()) {
             probe.close();
             grid.radiation = decode<float>(read_binary(radiation_path, float_bytes), "radiation.bin");
+        }
+    }
+
+    const std::string thermal_inertia_path = dir + "/thermal_inertia.bin";
+    {
+        std::ifstream probe(thermal_inertia_path, std::ios::binary);
+        if (probe.good()) {
+            probe.close();
+            grid.thermal_inertia = decode<float>(read_binary(thermal_inertia_path, float_bytes), "thermal_inertia.bin");
         }
     }
     return grid;

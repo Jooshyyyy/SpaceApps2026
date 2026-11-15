@@ -1,0 +1,8 @@
+{
+  "id": 13,
+  "name": "Mars Odyssey THEMIS-IR Day Global Mosaic v12",
+  "kind": "visual",
+  "source": "NASA / USGS / THEMIS",
+  "page": "https://astrogeology.usgs.gov/search/map/mars_odyssey_themis_ir_day_global_mosaic_100m_v12",
+  "note": "Valores ajustados; no son temperaturas calibradas."
+}

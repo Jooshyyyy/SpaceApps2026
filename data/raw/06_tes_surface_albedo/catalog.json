@@ -1,0 +1,8 @@
+{
+  "id": 6,
+  "name": "MGS TES Surface Albedo",
+  "kind": "numeric",
+  "source": "NASA MGS / ASU / PDS",
+  "page": "https://pds-geosciences.wustl.edu/missions/mgs/tesspecial.html",
+  "note": "Albedo Lambert 8 ppd. No mide radiaci\u00f3n ionizante."
+}

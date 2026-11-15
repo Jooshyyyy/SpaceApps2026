@@ -1,0 +1,8 @@
+{
+  "id": 14,
+  "name": "USGS Geologic Map of Mars SIM 3292",
+  "kind": "vector",
+  "source": "USGS / NASA",
+  "page": "https://pubs.usgs.gov/sim/3292/",
+  "note": "Unidades geol\u00f3gicas v\u00eda OGC API Features (USGS Astrogeology)."
+}

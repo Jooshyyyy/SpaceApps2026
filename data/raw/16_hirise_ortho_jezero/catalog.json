@@ -1,0 +1,8 @@
+{
+  "id": 16,
+  "name": "Mars 2020 HiRISE Orthomosaic Jezero 25 cm",
+  "kind": "image",
+  "source": "NASA / USGS / HiRISE",
+  "page": "https://astrogeology.usgs.gov/search/map/mars_2020_terrain_relative_navigation_hirise_orthorectified_image_mosaic",
+  "note": "Obst\u00e1culos visuales a 25 cm/p\u00edxel. Hay que detectarlos y validarlos."
+}

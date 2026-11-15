@@ -1,0 +1,8 @@
+{
+  "id": 18,
+  "name": "MSL RAD RDR Sol 805",
+  "kind": "science",
+  "source": "NASA PDS PPI / Curiosity RAD",
+  "page": "https://pds-ppi.igpp.ucla.edu/data/MSL-M-RAD-3-RDR-V1.0/DATA/SOL_00805_00938/",
+  "note": "Dosis GCR/SEP local y temporal; no es un mapa global de radiaci\u00f3n."
+}
