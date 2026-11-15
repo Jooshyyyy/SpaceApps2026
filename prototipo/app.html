@@ -149,12 +149,15 @@ body{margin:0;color:var(--txt);text-shadow:0 1px 2px rgba(0,0,0,.35);font:14px/1
  .sosbtn{bottom:12px;width:64px;height:64px}
 }
 /* botones del encabezado: minimizar panel y pantalla completa (visitante) */
+.lg2{margin-left:10px}.lg2 i{display:inline-block;width:10px;height:10px;border-radius:3px;margin:0 4px 0 8px;vertical-align:-1px}
 .hbtn{flex-shrink:0;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.08);color:var(--fg,#fff);border-radius:999px;padding:6px 12px;font:inherit;font-size:12px;font-weight:600;cursor:pointer}
 .hbtn.on{background:rgba(100,170,255,.25);border-color:rgba(120,180,255,.5)}
 #hfs,#hsnd{display:none;padding:6px 10px}
 /* visitante: sin barra superior, solo la tablet a pantalla completa */
 .vis .top{display:none}
 .vis #hfs,.vis #hsnd{display:inline-block}
+body.vis{overflow:hidden}.vis .foot{display:none} /* la rueda del mouse no mueve la página */
+#v3d canvas{touch-action:none}
 .vis .stage{padding:0}
 .vis .tablet{width:100%;height:100dvh;min-height:0;border-radius:0;box-shadow:none}
 /* mini flecha arriba del panel: lo pliega y lo vuelve a abrir */
@@ -188,8 +191,8 @@ body{margin:0;color:var(--txt);text-shadow:0 1px 2px rgba(0,0,0,.35);font:14px/1
  <div class="tablet" id="tablet">
   <div id="map"></div><div id="v3d"></div>
   <div class="hdr glass"><b>EVA-01</b><span id="met">MET 00:00:00</span><span class="pill ok" id="link">HABITAT LINK OK</span><span class="pill" id="be">ENGINE</span><span class="sp"></span><span id="alerts"></span><span class="pill" id="state">AT HABITAT</span><button class="hbtn on" id="hsnd" title="Voice and sounds">🔊</button><button class="hbtn" id="hfs" title="Fullscreen">⛶</button></div>
-  <div class="vt glass"><button class="cap vcap on" data-m="2d">2D</button><button class="cap vcap" data-m="3d">3D</button></div>
-  <div class="hint3d glass" id="hint3d">Drag: rotate · Right-click: pan · Wheel: zoom · True elevation 1:1</div>
+  <div class="vt glass"><button class="cap vcap on" data-m="2d">2D</button><button class="cap vcap" data-m="3d">3D</button><button class="cap" id="c3d" style="display:none" title="Fly to the astronaut">◎ Astronaut</button></div>
+  <div class="hint3d glass" id="hint3d">Drag: move · Right-drag / two fingers: rotate &amp; tilt · Wheel / pinch: zoom · Double-tap: fly there</div>
   <div class="compass"><svg viewBox="0 0 124 124" id="csvg"></svg></div>
   <button class="sosbtn" id="tsos" title="Hold 1.5 s to call for help · with SOS active, hold to cancel"><span id="tsostxt">SOS<small>HOLD</small></span></button>
   <div class="legend glass" id="legend">Slope<i style="background:#ffd60a"></i>10–20°<i style="background:repeating-linear-gradient(45deg,#ff453a 0 3px,#7a1a14 3px 6px)"></i>&gt;20° no-go<i style="background:#ff9f0a;border-radius:50%"></i>Curiosity 2025</div>
@@ -206,6 +209,14 @@ body{margin:0;color:var(--txt);text-shadow:0 1px 2px rgba(0,0,0,.35);font:14px/1
    <div class="card"><h3>Science target</h3>
     <div class="mut tgthint" style="margin-bottom:6px">Tap the map or an orange Curiosity point to choose another stop, even during the EVA</div>
     <div class="stops" id="stops"></div><div class="plan" id="planinfo"></div></div>
+   <div class="card"><h3>Environment · NASA data</h3>
+    <div class="grid2">
+     <div class="kv"><span>Radiation · MSL RAD</span><b id="envrad" style="font-size:16px">—</b></div>
+     <div class="kv"><span>Pressure · MSL REMS</span><b id="envp" style="font-size:16px">—</b></div>
+     <div class="kv"><span>Air temp · MSL REMS</span><b id="envt" style="font-size:16px">—</b></div>
+     <div class="kv"><span>Ground · MGS TES</span><b id="envsoil" style="font-size:16px">—</b></div>
+    </div>
+    <div class="mut" style="margin-top:8px" id="envhere">At the astronaut's position: —</div></div>
    <div class="card"><h3>Target view</h3><div class="pov" id="pov"></div>
     <div class="mut" style="margin-top:6px" id="povtxt"></div></div>
    <div class="gocard btns"><button class="go" id="go">▶ Start EVA</button></div>
@@ -273,7 +284,30 @@ L.rectangle(B,{color:'#64d2ff',weight:1,fill:false,dashArray:'4 4'}).addTo(map);
 const curio=L.layerGroup([L.polyline(M.traverse.map(q=>[q[0],q[1]]),{color:'#ff9f0a',weight:2.5,opacity:.9,dashArray:'2 6',interactive:false})]).addTo(map);
 M.traverse.forEach(q=>L.circleMarker([q[0],q[1]],{radius:3,color:'#3a2200',weight:.5,opacity:.7,fillColor:'#ff9f0a',fillOpacity:.6,bubblingMouseEvents:false})
   .bindTooltip('Curiosity · sol '+q[2]).on('click',()=>{const [r,c]=LL2RC(q);pickPoint(r,c,'Curiosity sol '+q[2],q[2])}).addTo(curio));
-L.control.layers(null,{'Terrain slope':slopeLayer,'Curiosity 2025 traverse':curio},{collapsed:true}).addTo(map);
+const layerCtl=L.control.layers(null,{'Terrain slope · HiRISE DEM':slopeLayer,'Curiosity 2025 traverse':curio},{collapsed:true}).addTo(map);
+// capas ambientales de NASA (se cargan en segundo plano): radiación (MSL RAD + horizonte) e inercia térmica (MGS TES)
+let RADL=null,TIL=null;
+const overlay=(vals,color)=>{const c=document.createElement('canvas');c.width=c.height=1000;const g=c.getContext('2d'),d=g.createImageData(1000,1000);
+  for(let i=0;i<1e6;i++){const k=color(vals[i]);if(k)d.data.set(k,i*4)}g.putImageData(d,0,0);return L.imageOverlay(c.toDataURL(),B)};
+fetch('radiation.u8').then(r=>r.arrayBuffer()).then(b=>{RADL=new Uint8Array(b); // 250 = cielo abierto (exposición total); bajo = protegido por el relieve
+  layerCtl.addOverlay(overlay(RADL,v=>v>=238?[214,90,255,Math.round((v-238)/12*120)]:v<190?[100,210,255,110]:null),'Radiation exposure · MSL RAD')}).catch(()=>{});
+fetch('thermal.u8').then(r=>r.arrayBuffer()).then(b=>{TIL=new Uint8Array(b); // inercia baja = polvo suelto (las botas se hunden)
+  layerCtl.addOverlay(overlay(TIL,v=>v&&v<36?[255,140,40,Math.round((36-v)/10*150)]:null),'Loose dust · MGS TES thermal inertia')}).catch(()=>{});
+const LEG={'Radiation exposure · MSL RAD':'<span class="lg2"><i style="background:#d65aff"></i>Open sky (more radiation)<i style="background:#64d2ff"></i>Sheltered</span>',
+  'Loose dust · MGS TES thermal inertia':'<span class="lg2"><i style="background:#ff8c28"></i>Loosest dust · sinkage risk</span>'};
+const legBase=$('legend').innerHTML;
+const legUpd=()=>{let h=legBase;for(const [n,on] of Object.entries(legOn))if(on)h+=LEG[n];$('legend').innerHTML=h};const legOn={};
+map.on('overlayadd',e=>{if(LEG[e.name]){legOn[e.name]=true;legUpd()}});map.on('overlayremove',e=>{if(LEG[e.name]){legOn[e.name]=false;legUpd()}});
+const ENV=M.environment||{};
+$('envrad').textContent=ENV.radiation_dose_rate_msv_h?(ENV.radiation_dose_rate_msv_h*1000).toFixed(0)+' µSv/h':'—';
+$('envp').textContent=ENV.ambient_pressure_pa?ENV.ambient_pressure_pa.toFixed(0)+' Pa':'—';
+$('envt').textContent=ENV.mean_surface_temp_c!=null?ENV.mean_surface_temp_c.toFixed(1)+' °C':'—';
+$('envsoil').textContent=ENV.mean_thermal_inertia?('Dusty sand · TI '+Math.round(ENV.mean_thermal_inertia)):'—';
+let envKey='';
+function envHere(pos){if(!pos)return;const [r,c]=LL2RC(pos);if(r<0||r>999||c<0||c>999)return;const i=r*1000+c,k=i+':'+!!RADL+!!TIL;if(k===envKey)return;envKey=k;
+  const parts=[];if(RADL){const f=RADL[i]/250;parts.push(`sky exposure ${Math.round(f*100)}% (${(f*(ENV.radiation_dose_rate_msv_h||0)*1000).toFixed(0)} µSv/h)`)}
+  if(TIL&&TIL[i]){const ti=TIL[i]+100;parts.push(`thermal inertia ${ti} → ${ti<132?'very loose dust, high sinkage risk':ti<136?'loose dust, careful footing':'dusty sand, firmer footing'}`)}
+  parts.push(`slope ${Math.round(SL[i])}°`);$('envhere').textContent="At the astronaut's position: "+parts.join(' · ')}
 const ref=M.aoi.refuge.ll;
 L.marker(ref,{icon:L.divIcon({className:'',html:'<div style="background:#64d2ff;color:#000;font-weight:700;border-radius:6px;padding:2px 6px;font-size:11px;white-space:nowrap">⌂ Habitat</div>'})}).addTo(map);
 const routeLayer=L.layerGroup().addTo(map),trail=L.polyline([],{color:'#fff',weight:3,dashArray:'2 5'}).addTo(map);
@@ -507,6 +541,7 @@ const VOZ=(()=>{
 ['pointerdown','keydown'].forEach(ev=>addEventListener(ev,()=>VOZ.welcome(),{once:true,capture:true})); // el navegador solo deja hablar después de un toque
 let lastSosK='';
 function renderBase(S){ // S: estado de la EVA (local, o recibido del servidor en la pantalla de la base)
+  envHere(S.pos);
   if(S.live){alertSounds(S);VOZ.tick(S);
     if(S.phase!==lastPhase){logEv('Status: '+S.stateTxt+(S.phase==='out'?' → '+S.dest:''),S.phase==='evac'?'bad':S.phase==='done'?'ok':'');lastPhase=S.phase}
     const al=S.fl.filter(x=>x!=='REPLANNING'&&x!=='ASTRONAUT SOS').join(', ');if(al!==lastAl){if(al)logEv('Alerts: '+al,'bad');else if(lastAl)logEv('No alerts','ok');lastAl=al}
@@ -689,7 +724,7 @@ document.querySelectorAll('.top .cap[data-v]').forEach(bt=>bt.onclick=()=>{docum
   $('base').style.display=v==='base'?'':'none';map.invalidateSize();if(window.V3D)V3D.resize();render();if(bmap)bmap.invalidateSize()});
 document.querySelectorAll('.vcap').forEach(bt=>bt.onclick=async()=>{mode=bt.dataset.m;document.querySelectorAll('.vcap').forEach(x=>x.classList.toggle('on',x===bt));
   const is3=mode==='3d';$('v3d').style.display=is3?'block':'none';$('map').style.visibility=is3?'hidden':'visible';
-  $('legend').style.display=is3?'none':'';$('hint3d').style.display=is3?'block':'none';
+  $('legend').style.display=is3?'none':'';$('hint3d').style.display=is3?'block':'none';$('c3d').style.display=is3?'':'none';
   if(matchMedia('(max-width:820px), (max-height:500px)').matches)setSide(is3); // en 3D el panel de abajo arranca plegado
   if(is3){await V3D.init({M,bb,ref});V3D.resize()}else map.invalidateSize();render()});
 drawRoute();render();planInfo(stop);
@@ -702,9 +737,9 @@ window.aresReady=true; // el logo de inicio se va cuando la página está lista
 </script>
 <script type="module">
 import * as THREE from 'three';
-import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {MapControls} from 'three/addons/controls/MapControls.js';
 const el=document.getElementById('v3d');
-let R,scene,cam,ctl,E,mean=0,routeRef=null,routeMesh,trailMesh,trailLen=-1,astro,inited=null,APP;
+let R,scene,cam,ctl,ground,fly=null,E,mean=0,routeRef=null,routeMesh,trailMesh,trailLen=-1,astro,inited=null,APP;
 const N=250,STEP=4,EX=1.0; // EX: exageración vertical (1 = real)
 const elevAt=(row,col)=>{row=Math.min(999,Math.max(0,Math.round(row)));col=Math.min(999,Math.max(0,Math.round(col)));return (E[row*1000+col]-mean)*EX};
 const xyz=(row,col,lift=0)=>new THREE.Vector3(col-500,elevAt(row,col)+lift,row-500);
@@ -730,13 +765,15 @@ function init(app){if(inited)return inited;APP=app;inited=(async()=>{
   R=new THREE.WebGLRenderer({antialias:true});R.toneMapping=THREE.ACESFilmicToneMapping;R.setPixelRatio(devicePixelRatio);el.appendChild(R.domElement);
   scene=new THREE.Scene();scene.background=new THREE.Color(0xc9a07a);scene.fog=new THREE.Fog(0xc9a07a,1500,4200);
   cam=new THREE.PerspectiveCamera(45,1,1,8000);cam.position.set(380,520,760);
-  ctl=new OrbitControls(cam,R.domElement);ctl.enableDamping=true;ctl.maxPolarAngle=Math.PI*0.47;ctl.minDistance=40;ctl.maxDistance=2600;
+  // navegación tipo Google Earth: arrastrar mueve el terreno, botón derecho / dos dedos giran e inclinan, la rueda acerca hacia el cursor
+  ctl=new MapControls(cam,R.domElement);ctl.enableDamping=true;ctl.dampingFactor=0.08;ctl.screenSpacePanning=false;ctl.zoomToCursor=true;
+  ctl.maxPolarAngle=Math.PI*0.47;ctl.minDistance=12;ctl.maxDistance=2600;ctl.target.set(0,0,0);
   scene.add(new THREE.HemisphereLight(0xffe6cc,0x2a1810,0.55));const sun=new THREE.DirectionalLight(0xfff1dd,1.6);sun.position.set(-700,380,-250);scene.add(sun);
   const geo=new THREE.PlaneGeometry(999,999,N-1,N-1);geo.rotateX(-Math.PI/2);const pos=geo.attributes.position;let mn=1e9;
   for(let i=0;i<pos.count;i++){const y=elevAt(Math.min(999,Math.floor(i/N)*STEP),Math.min(999,(i%N)*STEP));pos.setY(i,y);mn=Math.min(mn,y)}
   geo.computeVertexNormals();
   const floor=new THREE.Mesh(new THREE.PlaneGeometry(9000,9000).rotateX(-Math.PI/2),new THREE.MeshStandardMaterial({color:0x7a5038,roughness:1}));floor.position.y=mn-2;scene.add(floor);
-  const ground=new THREE.Mesh(geo,new THREE.MeshStandardMaterial({color:0xe8b48c,roughness:1,metalness:0}));scene.add(ground);
+  ground=new THREE.Mesh(geo,new THREE.MeshStandardMaterial({color:0xe8b48c,roughness:1,metalness:0}));scene.add(ground);
   texture().then(t=>{ground.material.map=t;ground.material.needsUpdate=true});
   const rf=llToRC(APP.ref);const hab=new THREE.Mesh(new THREE.CylinderGeometry(6,6,10,16),new THREE.MeshStandardMaterial({color:0x64d2ff,emissive:0x1a4a60}));
   hab.position.copy(xyz(rf[0],rf[1],5));scene.add(hab);const lr=label('⌂ Habitat','#64d2ff');lr.position.copy(xyz(rf[0],rf[1],34));scene.add(lr);
@@ -744,7 +781,19 @@ function init(app){if(inited)return inited;APP=app;inited=(async()=>{
     cone.position.copy(p).add(new THREE.Vector3(0,7,0));cone.rotation.x=Math.PI;scene.add(cone);const l=label('Stop '+s.id,'#ffd60a');l.position.copy(p).add(new THREE.Vector3(0,30,0));scene.add(l)});
   astro=new THREE.Group();const ball=new THREE.Mesh(new THREE.SphereGeometry(4.5,20,16),new THREE.MeshStandardMaterial({color:0xffffff,emissive:0x2a6a88}));ball.position.y=9;
   const pole=new THREE.Mesh(new THREE.CylinderGeometry(.6,.6,9,8),new THREE.MeshBasicMaterial({color:0xffffff}));pole.position.y=4.5;astro.add(ball,pole);scene.add(astro);
-  const loop=()=>{requestAnimationFrame(loop);if(el.style.display==='none')return;ctl.update();R.render(scene,cam)};loop();
+  const ray=new THREE.Raycaster(),ndc=new THREE.Vector2();
+  R.domElement.addEventListener('dblclick',e=>{const b=R.domElement.getBoundingClientRect();ndc.set((e.clientX-b.left)/b.width*2-1,-(e.clientY-b.top)/b.height*2+1);
+    ray.setFromCamera(ndc,cam);const hit=ray.intersectObject(ground)[0];if(hit)flyTo(hit.point,.55)});
+  const off=new THREE.Vector3();
+  const loop=()=>{requestAnimationFrame(loop);if(el.style.display==='none')return;
+    const t=ctl.target;off.set(0,0,0);
+    if(fly){const k=Math.min(1,(performance.now()-fly.t0)/900),e=k<.5?2*k*k:1-(-2*k+2)**2/2;
+      const want=fly.from.clone().lerp(fly.to,e),dir=cam.position.clone().sub(t).normalize(); // mismo ángulo, se acerca suave
+      t.copy(want);cam.position.copy(want).addScaledVector(dir,fly.d0+(fly.dist-fly.d0)*e);if(k>=1)fly=null}
+    else{ // el pivote no se sale de la zona y sigue la altura del terreno (sin saltos)
+      const cx=Math.max(-500,Math.min(500,t.x)),cz=Math.max(-500,Math.min(500,t.z)),gy=elevAt(cz+500,cx+500);
+      off.set(cx-t.x,(gy-t.y)*.15,cz-t.z);t.add(off);cam.position.add(off)}
+    ctl.update();R.render(scene,cam)};loop();
   addEventListener('resize',resize)})();return inited}
 function resize(){if(!R)return;const w=el.clientWidth,h=el.clientHeight;if(!w||!h)return;R.setSize(w,h);cam.aspect=w/h;cam.updateProjectionMatrix()}
 function update(pos,path,walked){if(!scene)return;
@@ -754,6 +803,9 @@ function update(pos,path,walked){if(!scene)return;
   if(walked.length!==trailLen){trailLen=walked.length;if(trailMesh){scene.remove(trailMesh);trailMesh.geometry.dispose()}
     trailMesh=tube(walked.map(ll=>{const [r,c]=llToRC(ll);return xyz(r,c,2.8)}),1.1,0xffffff);if(trailMesh)scene.add(trailMesh)}
   const [r,c]=llToRC(pos);astro.position.copy(xyz(r,c))}
+function flyTo(p,zoom=0){if(!ctl)return;const d=cam.position.distanceTo(ctl.target);
+  fly={from:ctl.target.clone(),to:new THREE.Vector3(p.x,p.y,p.z),t0:performance.now(),d0:d,dist:zoom?Math.max(60,d*zoom):d}}
+document.getElementById('c3d').onclick=()=>{if(astro)flyTo(astro.position,.6)};
 function heading(){if(!ctl)return 0;return (360-ctl.getAzimuthalAngle()*180/Math.PI)%360}
 window.V3D={init,update,resize,heading};
 </script></body></html>

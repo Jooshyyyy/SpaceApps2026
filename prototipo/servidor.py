@@ -607,16 +607,22 @@ class RateLimit:
 def make_handler(serial: SerialPort, bus: BusClient, data_dir: Path, busproc: "BusProcess", planner: Planner,
                  token: str, watch_token: str):
     data_files = {"/elevation.bin", "/slope.bin"}
-    slope_cache = {}
+    # capas compactas para la página (1 byte/celda + gzip): 4 MB -> unos cientos de KB cada una
+    u8_layers = {
+        "/slope.u8": ("slope.bin", lambda v: v),                         # grados enteros
+        "/radiation.u8": ("radiation.bin", lambda v: v * 250),           # factor de exposición 0..1 -> 0..250
+        "/thermal.u8": ("thermal_inertia.bin", lambda v: v - 100),       # inercia térmica - 100 (TES)
+    }
+    u8_cache = {}
 
-    def slope_u8():
-        """Pendiente en grados enteros (1 byte/celda) + su versión gzip: 4 MB -> ~0,4 MB para la página."""
-        if not slope_cache:
+    def layer_u8(path):
+        if path not in u8_cache:
+            src, enc = u8_layers[path]
             a = array("f")
-            a.frombytes((data_dir / "slope.bin").read_bytes())
-            raw = bytes(min(255, max(0, round(v))) if v == v else 0 for v in a)
-            slope_cache["raw"], slope_cache["gz"] = raw, gzip.compress(raw, 6)
-        return slope_cache
+            a.frombytes((data_dir / src).read_bytes())
+            raw = bytes(min(255, max(0, round(enc(v)))) if v == v else 0 for v in a)
+            u8_cache[path] = {"raw": raw, "gz": gzip.compress(raw, 6)}
+        return u8_cache[path]
     limiter = RateLimit()
     owner = {"id": None}  # solo la última pantalla del astronauta que abrió la página le escribe al reloj
 
@@ -764,8 +770,8 @@ def make_handler(serial: SerialPort, bus: BusClient, data_dir: Path, busproc: "B
             if path == "/bus":
                 rev = query[4:] if query.startswith("rev=") else None
                 return self._reply(200, bus.snapshot(int(rev) if rev and rev.isdigit() else None))
-            if path == "/slope.u8":
-                c = slope_u8()
+            if path in u8_layers:
+                c = layer_u8(path)
                 gz = "gzip" in (self.headers.get("Accept-Encoding") or "")
                 body = c["gz"] if gz else c["raw"]
                 self.send_response(200)
