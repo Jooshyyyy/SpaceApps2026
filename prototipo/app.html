@@ -213,8 +213,8 @@ body.vis{overflow:hidden}.vis .foot{display:none} /* la rueda del mouse no mueve
     </div></div>
    <div class="card"><h3>Science target</h3>
     <div class="mut tgthint" style="margin-bottom:6px">Tap the map or an orange Curiosity point to choose another stop, even during the EVA</div>
-    <div class="sci" id="sci"></div>
-    <div class="stops" id="stops"></div><div class="plan" id="planinfo"></div></div>
+    <div class="stops" id="stops"></div>
+    <div class="sci" id="sci" style="margin-top:8px"></div><div class="plan" id="planinfo"></div></div>
    <div class="card"><h3>Environment · NASA data</h3>
     <div class="grid2">
      <div class="kv"><span>Radiation · MSL RAD</span><b id="envrad" style="font-size:16px">—</b></div>
@@ -414,11 +414,16 @@ let ordSeq=null;async function pollOrders(){try{const r=await (await fetch('/eva
 if(!OBS)setInterval(pollOrders,400);
 async function pollWatch(){try{const r=await (await fetch('/reloj?since='+btnSeq)).json();
   $('bwatch').textContent=VIS&&obsLast&&obsLast.watchTxt?obsLast.watchTxt:[r.puente&&'Bluetooth via laptop',r.bt&&'Bluetooth',r.wifi&&(typeof r.wifi==='string'?'WiFi '+r.wifi:'WiFi'),r.usb&&'USB'].filter(Boolean).join(' + ')||'disconnected';
+  if(!OBS&&$('usb').dataset.bridge){const on=!!(r.puente||r.bt||r.wifi||r.usb); // estado real del enlace con el reloj
+    $('usb').classList.toggle('on',on);$('usb').textContent=on?'⚡ Watch connected':'⚡ Watch not connected'}
   const first=!btnInit;btnInit=true; // la primera lectura solo se pone al día (no repite botones viejos)
   for(const e of r.events){btnSeq=Math.max(btnSeq,e.seq);if(OBS||first)continue;if(e.button==='SOS')triggerSOS('watch button');else if(e.button==='CANCEL')cancelSOS('the astronaut (watch)')}}catch(e){}}
 setInterval(pollWatch,300);
 async function poll(){if(OBS)return;try{const s=await (await fetch('/bus'+(rev!=null?'?rev='+rev:''))).json();busOk=s.connected;tele=s.telemetry;
-  if(s.route){rev=s.route.revision;const r=s.route.resources;o2=r.o2_remaining_kg;bat=r.battery_remaining_wh;dose=r.cumulative_dose_msv;adoptPlan(s.route)}}catch(e){busOk=false}}
+  if(s.route){rev=s.route.revision;const r=s.route.resources;
+    if(phase==='idle'){o2=P.o2_capacity_kg;bat=P.batt_capacity_wh;dose=0} // en el hábitat, antes de salir: tanques llenos (no lo que quedó de la EVA anterior)
+    else{o2=r.o2_remaining_kg;bat=r.battery_remaining_wh;dose=r.cumulative_dose_msv}
+    adoptPlan(s.route)}}catch(e){busOk=false}}
 setInterval(poll,250);poll();
 const post=q=>{lastPost=performance.now();cmd({type:'position',row:q[4],col:q[5]})};
 const back=()=>phase==='ret'||phase==='evac';
@@ -428,8 +433,10 @@ function curPos(){
   const a=path[Math.min(idx,path.length-1)],b=path[Math.min(idx+1,path.length-1)];return [[a[0]+(b[0]-a[0])*frac,a[1]+(b[1]-a[1])*frac],ll2(path[Math.min(idx+12,path.length-1)]),path]}
 function remainingReturn(){if(phase==='idle'||phase==='done')return 0;
   if(back()&&seg.length)return seg.slice(idx).reduce((s,x)=>s+x.t,0)-(seg[idx]?seg[idx].t*frac:0);
-  return tele&&tele.ttr_s!=null?tele.ttr_s:0} // TTR del motor (tramo de regreso)
-function step(dt){met+=dt;if(phase==='idle'||phase==='done'||phase==='wait')return;
+  // de ida o en la parada: tiempo para volver al hábitat desandando lo caminado (el TTR del bus cuenta hasta la parada y ahí vale 0)
+  const v=stop.inb&&stop.inb.time_s>0&&stop.out?stop.out.distance_m/stop.inb.time_s:0.8,pts=walked.concat([curPos()[0]]);
+  let m=0;for(let i=1;i<pts.length;i++)m+=hav(pts[i-1],pts[i]);return m/v}
+function step(dt){if(phase==='idle'||phase==='done')return;met+=dt;if(phase==='wait')return; // el reloj de misión solo corre durante la EVA
   if(phase==='work'){dwell-=dt;if(dwell<=0){phase='wait';wantGoal={row:REF.row,col:REF.col};cmd({type:'set_goal',...wantGoal})}return}
   let left=dt;while(left>0&&idx<seg.length){const s=seg[idx],use=Math.min(s.t*(1-frac),left);frac+=use/s.t;left-=use;if(frac>=1-1e-9){idx++;frac=0;walked.push(ll2(path[idx]))}}
   const q=path[Math.min(idx,path.length-1)];
@@ -439,7 +446,9 @@ function step(dt){met+=dt;if(phase==='idle'||phase==='done'||phase==='wait')retu
 const fmt=s=>{s=Math.max(0,Math.round(s));return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')};
 function bearing(a,b){const r=Math.PI/180,y=Math.sin((b[1]-a[1])*r)*Math.cos(b[0]*r),x=Math.cos(a[0]*r)*Math.sin(b[0]*r)-Math.sin(a[0]*r)*Math.cos(b[0]*r)*Math.cos((b[1]-a[1])*r);return (Math.atan2(y,x)/r+360)%360}
 const FL={STORM:'STORM',RAD_PEAK:'RADIATION PEAK',O2_LOW:'LOW O₂',BATT_LOW:'LOW BATTERY',COMMS_LOST:'NO LINK',ROUTE_STALE:'REPLANNING',EVA_ABORT:'ABORT EVA'};
-function flags(){const f=tele?tele.flag_names.map(n=>FL[n]||n):[];if(!busOk)f.unshift('NO ENGINE');if(sos)f.unshift('ASTRONAUT SOS');return f} // el backend decide las alertas
+function flags(){let f=tele?tele.flag_names.map(n=>FL[n]||n):[];
+  if(phase==='idle'){const now=[storm&&'STORM',rad&&'RADIATION PEAK',comms&&'NO LINK'];f=f.filter(x=>now.includes(x))} // en el hábitat: solo alertas activas ahora, no las de la EVA anterior
+  if(!busOk)f.unshift('NO ENGINE');if(sos)f.unshift('ASTRONAUT SOS');return f} // el backend decide las alertas
 const soft=x=>x==='NO LINK'||x==='REPLANNING';
 function render(){if(VIS){renderMirror(obsLast);return}
   const o=o2/P.o2_capacity_kg,b=bat/P.batt_capacity_wh,ttr=remainingReturn(),[pos,next,p]=curPos(),fl=flags();
@@ -696,10 +705,10 @@ fetch('/estado').then(r=>r.ok?r.json():null).then(async st=>{if(!st||!st.tty||OB
     return fetch('/w',{method:'POST',body:b,headers:{'X-Sesion':SID}}).then(r=>{bridgeBusy=false;
       if(r.status===409)throw new Error('another screen took control of the watch (reload to take it back)');
       if(!r.ok&&r.status!==400)throw new Error('port '+st.tty+' not available')}).catch(e=>{bridgeBusy=false;throw e})}};
-  $('usb').classList.add('on');$('usb').textContent='⚡ Watch connected';$('usbinfo').textContent='Bridge → '+([st.puente&&'laptop (Bluetooth)',st.bt&&'Bluetooth',st.wifi&&'WiFi '+st.wifi,st.usb&&st.tty].filter(Boolean).join(' + ')||st.tty)+' a 10 Hz'}).catch(()=>{});
+  $('usb').dataset.bridge='1';$('usbinfo').textContent='Bridge → '+([st.puente&&'laptop (Bluetooth)',st.bt&&'Bluetooth',st.wifi&&'WiFi '+st.wifi,st.usb&&st.tty].filter(Boolean).join(' + ')||st.tty)+' a 10 Hz'}).catch(()=>{});
 function sendUSB(w){if(!usbWriter)return;const now=performance.now();if(now-usbLast<100)return;usbLast=now;
   const line=`$W,${w.brg.toFixed(0)},${w.az.toFixed(0)},${w.dist.toFixed(0)},${w.o2},${w.bat},${w.ttr},${w.dose10},${w.flags},${w.text.replace(/,/g,' ')}\n`;
-  usbWriter.write(new TextEncoder().encode(line)).then(()=>{if(++usbSent%50===0)$('usbinfo').textContent='Sending to the ESP32 · '+usbSent+' frames'}).catch(e=>{if(e.message.startsWith('another screen'))usbWriter=null;$('usbinfo').textContent=(usbWriter?'Retrying… ':'')+'Send error: '+e.message})}
+  usbWriter.write(new TextEncoder().encode(line)).then(()=>{if(++usbSent%50===0)$('usbinfo').textContent='Sending to the ESP32 · '+usbSent+' frames'}).catch(e=>{if(e.message.startsWith('another screen'))usbWriter=null;$('usbinfo').textContent=/not available/.test(e.message)?'Watch not connected · turn it on (Bluetooth or USB)':(usbWriter?'Retrying… ':'')+'Send error: '+e.message})}
 // Arranque del reloj: misma animación que el ESP32 (texto ARES de logo_ares.h + planeta y anillo girando)
 const OLED_LOGO=new Image();OLED_LOGO.src='oled_logo.png';let bootT0=performance.now(),oledBoot=bootT0+3700;
 function drawAres(c,cd){const PCX=61.44,PCY=27.42,PR=27.28,PBOT=35.97,RCX=61.31,RCY=22.03,RA=37.78,RB=4.63,TH=-0.29147;
@@ -787,7 +796,7 @@ function init(app){if(inited)return inited;APP=app;inited=(async()=>{
   E=new Float32Array(await (await fetch('elevation.bin')).arrayBuffer());let sum=0;for(const v of E)sum+=v;mean=sum/E.length;
   R=new THREE.WebGLRenderer({antialias:true});R.toneMapping=THREE.ACESFilmicToneMapping;R.setPixelRatio(devicePixelRatio);el.appendChild(R.domElement);
   scene=new THREE.Scene();scene.background=new THREE.Color(0xc9a07a);scene.fog=new THREE.Fog(0xc9a07a,1500,4200);
-  cam=new THREE.PerspectiveCamera(45,1,1,8000);cam.position.set(380,520,760);
+  cam=new THREE.PerspectiveCamera(45,1,1,8000);cam.position.set(210,290,430); // vista inicial cercana: el hábitat y las paradas se distinguen
   // navegación tipo Google Earth: arrastrar mueve el terreno, botón derecho / dos dedos giran e inclinan, la rueda acerca hacia el cursor
   ctl=new MapControls(cam,R.domElement);ctl.enableDamping=true;ctl.dampingFactor=0.08;ctl.screenSpacePanning=false;ctl.zoomToCursor=true;
   ctl.maxPolarAngle=Math.PI*0.47;ctl.minDistance=12;ctl.maxDistance=2600;ctl.target.set(0,0,0);
