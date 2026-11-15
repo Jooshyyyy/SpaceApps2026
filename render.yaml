@@ -1,0 +1,15 @@
+# Creates a public demo service without silently provisioning a paid disk.
+# See docs/render-deploy.md before enabling full live routing / heavy ingestion.
+services:
+  - type: web
+    name: mars-eva
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /estado
+    envVars:
+      - key: WATCH_TOKEN
+        generateValue: true
+      - key: PORT
+        value: "10000"

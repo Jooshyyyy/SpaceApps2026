@@ -118,6 +118,7 @@ body{margin:0;color:var(--txt);text-shadow:0 1px 2px rgba(0,0,0,.35);font:14px/1
 <script type="importmap">{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js","three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}</script>
 </head><body>
 <div class="splash" id="splash" role="img" aria-label="ARES · Mars Navigation Map"><img src="logo_ares.png" alt="ARES · Mars Navigation Map"></div>
+<script src="watch-status.js"></script>
 <script>(()=>{const sp=document.getElementById('splash'),hide=()=>sp.classList.add('out');setTimeout(hide,2600);sp.addEventListener('pointerdown',hide)})();</script>
 <div class="top glass"><h1>ARES</h1>
  <button data-v="both" class="cap on">Tablet + Reloj</button><button data-v="tablet" class="cap">Tablet</button><button data-v="watch" class="cap">Reloj</button><button data-v="base" class="cap">🛰 Base de control</button>
@@ -296,7 +297,7 @@ let ordSeq=null;async function pollOrders(){try{const r=await (await fetch('/eva
   if(ordSeq!==null)r.orders.forEach(o=>execOrder(o.type));ordSeq=r.seq}catch(e){}} // la primera lectura solo se pone al día
 if(!OBS)setInterval(pollOrders,400);
 async function pollWatch(){try{const r=await (await fetch('/reloj?since='+btnSeq)).json();
-  $('bwatch').textContent=r.wifi?'WiFi '+r.wifi:r.usb?'USB':'desconectado';
+  $('bwatch').textContent=watchStatusLabel(r);
   const first=!btnInit;btnInit=true; // la primera lectura solo se pone al día (no repite botones viejos)
   for(const e of r.events){btnSeq=Math.max(btnSeq,e.seq);if(OBS||first)continue;if(e.button==='SOS')triggerSOS('botón del reloj');else if(e.button==='CANCEL')cancelSOS('el astronauta (reloj)')}}catch(e){}}
 setInterval(pollWatch,300);
