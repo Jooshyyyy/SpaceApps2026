@@ -1,12 +1,14 @@
 // Mars EVA Nav — reloj de muñeca (simulación)
 // ESP32 (NodeMCU ESP-32S) + OLED 1.3" I2C 128x64.
-// Recibe el estado que calcula el prototipo web y lo dibuja, por WiFi (UDP 4210) o por USB-serie (115200).
+// Recibe el estado que calcula el prototipo web y lo dibuja, por WSS saliente a Render
+//   (/reloj/ws, puerto 443) o por USB-serie (115200) como enlace de respaldo.
 //
 // WiFi: la primera vez (o manteniendo el botón SOS al encender) el reloj abre la red
 //   "MarsEVA-Reloj-XXXX"; desde el celular entra a http://192.168.4.1 y elige tu WiFi.
 //   La contraseña la escribe el usuario en esa página y queda guardada en el ESP32.
-//   Conectado, el reloj se anuncia por broadcast ("$H,reloj") y servidor.py le responde con las tramas.
-//   El USB puede quedar solo como alimentación.
+//   Conectado y con hora NTP válida, abre el WSS con el token en la cabecera
+//   Authorization y recibe las tramas por ahí. Sin watch_config.h, el USB sigue
+//   funcionando como único enlace (útil para pruebas locales).
 //
 // Conexión OLED -> ESP32:  GND->GND  VCC->3V3  SDA->P22  SCL->P21
 // Botón de emergencia (SOS): pulsador entre GPIO25 y GND, resistencia de pull-up a 3V3.
@@ -25,16 +27,51 @@
 //   flags: bit0 TORMENTA, bit1 RADIACION, bit2 O2 BAJO, bit3 BAT BAJA,
 //          bit4 SIN ENLACE, bit5 EVACUACION, bit6 SOS ACTIVO, bit7 BASE CONFIRMÓ
 //
-// Librería necesaria: U8g2 (olikraus).
+// Librerías necesarias: U8g2 (olikraus) y WebSockets (Markus Sattler / Links2004).
+// La configuración WSS vive en watch_config.h (ignorado por git); ver README.md.
 
 #include <Arduino.h>
 #include <Wire.h>
 #include <U8g2lib.h>
 #include <WiFi.h>
-#include <WiFiUdp.h>
 #include <WebServer.h>
 #include <Preferences.h>
+#include <WebSocketsClient.h>
+#include <time.h>
 #include "logo_ares.h"
+#include "watch_transport.h"
+
+#if defined(__has_include)
+#if __has_include("watch_config.h")
+#include "watch_config.h"
+#define WATCH_HAVE_CONFIG 1
+#endif
+#endif
+#ifndef WATCH_HAVE_CONFIG
+#define WATCH_HAVE_CONFIG 0
+#endif
+
+#ifndef WATCH_HOST
+#define WATCH_HOST ""
+#endif
+#ifndef WATCH_PORT
+#define WATCH_PORT 443
+#endif
+#ifndef WATCH_PATH
+#define WATCH_PATH "/reloj/ws"
+#endif
+#ifndef WATCH_TOKEN
+#define WATCH_TOKEN ""
+#endif
+#ifndef WATCH_TRUSTED_ROOT_PEM
+#define WATCH_TRUSTED_ROOT_PEM ""
+#endif
+#ifndef WATCH_NTP_SERVER_1
+#define WATCH_NTP_SERVER_1 "pool.ntp.org"
+#endif
+#ifndef WATCH_NTP_SERVER_2
+#define WATCH_NTP_SERVER_2 "time.google.com"
+#endif
 
 // Las pantallas de 1.3" suelen usar SH1106. Si la imagen sale corrida 2 píxeles
 // o con una franja de basura a la derecha, comenta esta línea y usa la de SSD1306.
@@ -50,8 +87,18 @@ constexpr uint8_t LED_R = 27, LED_G = 26, LED_B = 14;  // calibrado con la cáma
 constexpr bool LED_ANODO_COMUN = false;  // tu LED es de cátodo común (pata común a GND)
 // Ganancia por color (0-255) medida con la cámara: iguala el brillo de los tres canales.
 constexpr uint8_t GAIN_R = 255, GAIN_G = 100, GAIN_B = 255;
-constexpr uint16_t UDP_PORT = 4210;          // mismo puerto en el reloj y en servidor.py
 constexpr uint32_t WIFI_CONNECT_MS = 20000;  // espera al conectar con la red guardada
+constexpr uint32_t WSS_ATTEMPT_TIMEOUT_MS = 15000;  // límite entre llamadas; no interrumpe el connect síncrono
+constexpr uint32_t WSS_CLOCK_LOG_MS = 5000;         // no repetir el aviso NTP cada vuelta
+constexpr uint32_t WSS_HEARTBEAT_MS = 15000;
+constexpr uint32_t WSS_PONG_TIMEOUT_MS = 3000;
+constexpr uint8_t WSS_PONG_MISSES = 2;
+// arduinoWebSockets 2.6.1 no tiene un valor para desactivar su auto-retry:
+// setReconnectInterval(0) significa "sin espera" y reintenta en cada loop().
+// Se permite un solo loop inmediato y luego se deja el intervalo por encima de
+// la ventana de intento, para que el backoff real lo gobierne wssRetry.
+constexpr unsigned long WSS_FIRST_LOOP_INTERVAL_MS = 1;
+constexpr unsigned long WSS_LIBRARY_RECONNECT_MS = 60000;
 
 struct State {
   float brg = -1, az = 0, dist = 0;
@@ -62,8 +109,8 @@ struct State {
   bool everRx = false;
 } st;
 
-char line[96];
-size_t lineLen = 0;
+watch::LineAssembler serialLines;  // buffers separados: USB y WSS no mezclan líneas
+watch::LineAssembler wsLines;
 
 void parseLine(char* s) {
   if (strncmp(s, "$W,", 3) != 0) return;
@@ -86,14 +133,8 @@ void parseLine(char* s) {
 
 void readSerial() {
   while (Serial.available()) {
-    char c = (char)Serial.read();
-    if (c == '\n' || c == '\r') {
-      if (lineLen) { line[lineLen] = 0; parseLine(line); lineLen = 0; }
-    } else if (lineLen < sizeof(line) - 1) {
-      line[lineLen++] = c;
-    } else {
-      lineLen = 0;  // línea demasiado larga: se descarta
-    }
+    const char c = (char)Serial.read();
+    serialLines.feed(&c, 1, parseLine);
   }
 }
 
@@ -175,11 +216,15 @@ void drawInfo() {
 // ---------------------------------------------------------------- red WiFi
 enum NetMode { NET_OFF, NET_STA, NET_AP };
 NetMode netMode = NET_OFF;
-WiFiUDP udp;
 WebServer web(80);
 Preferences prefs;
-IPAddress serverIp;
-uint16_t serverPort = 0;
+WebSocketsClient ws;
+watch::ReconnectSchedule wssRetry;
+bool wssConfigured = false;
+bool wssConnected = false;
+bool wssAttempting = false;
+uint32_t wssAttemptAt = 0;
+char wssHeaders[320];
 char apName[24] = "";
 String wifiSsid;
 
@@ -206,7 +251,7 @@ void handlePortal() {  // página de configuración: elegir la red y escribir la
     "<p>Red<br><input name=ssid list=redes required style='width:100%;padding:10px;font-size:16px'><datalist id=redes>" + opts + "</datalist></p>"
     "<p>Contraseña<br><input name=pass type=password style='width:100%;padding:10px;font-size:16px'></p>"
     "<button style='width:100%;padding:12px;font-size:16px'>Guardar y conectar</button></form>"
-    "<p style='color:#999;font-size:13px'>La red debe ser la misma de la computadora que corre servidor.py.</p>");
+    "<p style='color:#999;font-size:13px'>La red necesita internet y el servidor Render configurado.</p>");
 }
 
 void handleSave() {
@@ -256,10 +301,68 @@ bool connectSaved() {
     delay(250);
   }
   if (WiFi.status() != WL_CONNECTED) return false;
-  udp.begin(UDP_PORT);
+  configTime(0, 0, WATCH_NTP_SERVER_1, WATCH_NTP_SERVER_2);  // TLS necesita hora válida
+  wssRetry.reset(millis());
   netMode = NET_STA;
   Serial.printf("$D,wifi ok %s %s\n", wifiSsid.c_str(), WiFi.localIP().toString().c_str());
   return true;
+}
+
+void onWsEvent(WStype_t type, uint8_t* payload, size_t length) {
+  switch (type) {
+    case WStype_CONNECTED:
+      wssConnected = true;
+      wssAttempting = false;
+      wssRetry.recordSuccess();
+      Serial.printf("$D,wss conectado %s%s\n", WATCH_HOST, WATCH_PATH);
+      break;
+    case WStype_DISCONNECTED:
+      if (wssConnected) Serial.println("$D,wss desconectado");
+      wssConnected = false;
+      wssAttempting = false;
+      wssRetry.recordFailure(millis());
+      break;
+    case WStype_TEXT:  // el servidor manda "$W,...\n"; puede traer varias líneas
+      wsLines.feed(reinterpret_cast<const char*>(payload), length, parseLine);
+      break;
+    case WStype_ERROR:
+      Serial.println("$D,wss error");
+      break;
+    default:  // PING/PONG los atiende WebSocketsClient
+      break;
+  }
+}
+
+void setupWatchClient() {
+  wssConfigured = watch::configUsable(WATCH_HOST, WATCH_TOKEN, WATCH_TRUSTED_ROOT_PEM);
+  if (!wssConfigured) {
+    Serial.println(WATCH_HAVE_CONFIG ? "$D,wss config invalida en watch_config.h"
+                                     : "$D,wss sin watch_config.h: solo USB");
+    return;
+  }
+  if (watch::buildAuthorizationHeader(wssHeaders, sizeof(wssHeaders), WATCH_TOKEN) == 0) {
+    wssConfigured = false;
+    Serial.println("$D,wss token invalido o demasiado largo");
+    return;
+  }
+  ws.setExtraHeaders(wssHeaders);  // reemplaza Origin: file://; sendHeader agrega el CRLF
+  ws.setReconnectInterval(WSS_LIBRARY_RECONNECT_MS);
+  ws.enableHeartbeat(WSS_HEARTBEAT_MS, WSS_PONG_TIMEOUT_MS, WSS_PONG_MISSES);
+  ws.onEvent(onWsEvent);
+  Serial.printf("$D,wss configurado %s:%u%s\n", WATCH_HOST, (unsigned)WATCH_PORT, WATCH_PATH);
+}
+
+void startWatchAttempt(uint32_t now) {
+  Serial.printf("$D,wss conectando %s:%u%s intento %u\n", WATCH_HOST, (unsigned)WATCH_PORT, WATCH_PATH,
+                (unsigned)wssRetry.attempts() + 1);
+  wssAttempting = true;
+  wssAttemptAt = now;
+  // beginSslWithCA (no beginSSL): en 2.6.1 el 4.º argumento de beginSSL es una
+  // huella SHA-1 en ESP32 (SSL_AXTLS) y un PEM ahí nunca configura la CA.
+  watch::beginTlsWithCa(ws, WATCH_HOST, WATCH_PORT, WATCH_PATH, WATCH_TRUSTED_ROOT_PEM);
+  ws.setReconnectInterval(WSS_FIRST_LOOP_INTERVAL_MS);
+  ws.loop();  // un único intento inmediato
+  ws.setReconnectInterval(WSS_LIBRARY_RECONNECT_MS);
 }
 
 void setupNet() {
@@ -270,35 +373,49 @@ void setupNet() {
     while (digitalRead(BTN_SOS) == LOW) delay(20);
   }
   if (!connectSaved()) startPortal();
+  if (netMode == NET_STA) setupWatchClient();
 }
 
-void sendButton(const char* msg) {  // a la base: por USB y, si hay WiFi, por UDP (3 veces: UDP puede perder paquetes)
+void sendButton(const char* msg) {  // USB siempre; WSS una sola vez, sin duplicados
   Serial.println(msg);
-  if (netMode != NET_STA || !serverPort || WiFi.status() != WL_CONNECTED) return;
-  for (int i = 0; i < 3; i++) {
-    udp.beginPacket(serverIp, serverPort); udp.print(msg); udp.print('\n'); udp.endPacket();
-    delay(30);
-  }
+  if (netMode != NET_STA || !wssConnected) return;
+  char frame[32];
+  const size_t n = watch::buildOutboundFrame(frame, sizeof(frame), msg);
+  if (n == 0) { Serial.println("$D,wss boton invalido"); return; }
+  if (!ws.sendTXT(frame, n)) Serial.println("$D,wss envio fallo");
 }
 
 void netLoop(uint32_t now) {
   if (netMode == NET_AP) { web.handleClient(); return; }
-  if (netMode != NET_STA || WiFi.status() != WL_CONNECTED) return;
-  static uint32_t lastHello = 0;
-  if (now - lastHello > 2000) {  // anuncio: el servidor aprende la IP del reloj
-    lastHello = now;
-    udp.beginPacket(IPAddress(255, 255, 255, 255), UDP_PORT); udp.print("$H,reloj\n"); udp.endPacket();
+  if (netMode != NET_STA) return;
+  if (WiFi.status() != WL_CONNECTED) {  // la caída de WiFi puede no emitir evento WSS
+    if (wssConnected || wssAttempting) {
+      ws.disconnect();
+      wssConnected = false;
+      wssAttempting = false;
+      wssRetry.recordFailure(now);
+    }
+    return;
   }
-  char buf[160];
-  for (int sz = udp.parsePacket(); sz > 0; sz = udp.parsePacket()) {
-    const int n = udp.read(buf, sizeof(buf) - 1);
-    if (n <= 0) continue;
-    buf[n] = 0;
-    serverIp = udp.remoteIP();
-    serverPort = udp.remotePort();
-    char* save = nullptr;
-    for (char* l = strtok_r(buf, "\r\n", &save); l; l = strtok_r(nullptr, "\r\n", &save)) parseLine(l);
+  if (!wssConfigured) return;
+  if (!watch::clockReadyForTls((int64_t)time(nullptr))) {
+    static uint32_t lastClockLog = 0;
+    if (now - lastClockLog > WSS_CLOCK_LOG_MS) {
+      lastClockLog = now;
+      Serial.println("$D,wss esperando hora NTP para TLS");
+    }
+    return;
   }
+  if (wssConnected) { ws.loop(); return; }
+  if (wssAttempting && now - wssAttemptAt < WSS_ATTEMPT_TIMEOUT_MS) { ws.loop(); return; }
+  if (wssAttempting) {  // intento colgado: se corta y se agenda el reintento
+    ws.disconnect();
+    wssAttempting = false;
+    wssRetry.recordFailure(now);
+    Serial.println("$D,wss intento agotado");
+  }
+  if (!wssRetry.due(now)) return;
+  startWatchAttempt(now);
 }
 
 // Botón SOS: devuelve el avance 0..1 mientras se mantiene apretado.
@@ -444,7 +561,10 @@ void loop() {
     } else if (netMode == NET_STA) {
       oled.drawStr(14, 14, "MARS EVA NAV");
       oled.drawStr(0, 30, WiFi.status() == WL_CONNECTED ? ("WiFi " + WiFi.localIP().toString()).c_str() : "WiFi reconectando");
-      oled.drawStr(0, 46, st.everRx ? "SIN DATOS TABLET" : "ESPERANDO SERVIDOR");
+      oled.drawStr(0, 46, st.everRx ? "SIN DATOS TABLET"
+                                    : !wssConfigured ? "WSS NO CONFIGURADO"
+                                    : wssConnected ? "ESPERANDO SERVIDOR"
+                                    : "WSS RECONECTANDO");
     } else {
       oled.drawStr(14, 24, "MARS EVA NAV");
       oled.drawStr(8, 42, st.everRx ? "SIN DATOS TABLET" : "ESPERANDO USB...");
