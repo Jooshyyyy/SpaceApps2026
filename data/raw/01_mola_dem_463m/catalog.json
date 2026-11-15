@@ -1,0 +1,8 @@
+{
+  "id": 1,
+  "name": "MGS MOLA Global DEM 463 m",
+  "kind": "numeric",
+  "source": "NASA / USGS / MOLA",
+  "page": "https://astrogeology.usgs.gov/search/map/mars_mgs_mola_dem_463m",
+  "note": "Topograf\u00eda global 463 m/p\u00edxel. Prioritario. Insuficiente para obst\u00e1culos peque\u00f1os."
+}

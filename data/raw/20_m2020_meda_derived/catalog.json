@@ -1,0 +1,8 @@
+{
+  "id": 20,
+  "name": "Mars 2020 MEDA Derived Environmental Data",
+  "kind": "numeric",
+  "source": "NASA PDS / Perseverance MEDA",
+  "page": "https://pds-atmospheres.nmsu.edu/data_and_services/atmospheres_data/PERSEVERANCE/retrieving_mars2020.html",
+  "note": "Algunos sensores requieren tambi\u00e9n meda_calibrated.tar.gz (~11 GB)."
+}

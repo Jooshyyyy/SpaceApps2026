@@ -3,10 +3,31 @@
 *.tiff
 Gale_DEM_SMG_1m.tif
 
+# --- Raw downloads & heavy datasets -------------------------------------
+scripts/datos_marte/
+data/raw/**/*.img
+data/raw/**/*.IMG
+data/raw/**/*.zip
+data/raw/**/*.ZIP
+data/raw/**/*.jp2
+data/raw/**/*.JP2
+data/raw/**/*.txt
+data/raw/**/*.TXT
+data/raw/**/*.tab
+data/raw/**/*.TAB
+data/raw/**/*.lbl
+data/raw/**/*.LBL
+data/raw/gale_hirise/
+
 # --- Generated binaries: regenerate with scripts/ingest.py --------------
 data/processed/*.bin
 data/processed/*.f32
 data/processed/*.u8
+
+# --- Binaries & Build Artifacts -----------------------------------------
+*.exe
+core_engine/eva_engine
+communication/eva_bus
 
 # --- Python -------------------------------------------------------------
 __pycache__/

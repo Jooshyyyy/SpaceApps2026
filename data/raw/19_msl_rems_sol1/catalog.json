@@ -1,0 +1,8 @@
+{
+  "id": 19,
+  "name": "MSL REMS ENVRDR Sol 1",
+  "kind": "numeric",
+  "source": "NASA PDS Atmospheres / Curiosity REMS",
+  "page": "https://atmos.nmsu.edu/PDS/data/mslrem_1001/DATA/SOL_00001_00089/",
+  "note": "Meteorolog\u00eda. Aplicar indicadores de calidad de cada sensor."
+}

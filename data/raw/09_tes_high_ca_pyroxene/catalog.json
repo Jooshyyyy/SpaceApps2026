@@ -1,0 +1,8 @@
+{
+  "id": 9,
+  "name": "MGS TES High-Calcium Pyroxene Abundance",
+  "kind": "numeric",
+  "source": "NASA MGS / ASU",
+  "page": "https://tes.mars.asu.edu/products/index.html",
+  "note": "Mineralog\u00eda regional. El cubo ENVI de 8 ya incluye esta banda."
+}

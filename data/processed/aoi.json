@@ -10,7 +10,7 @@
     "bigtiff": true,
     "rows_per_strip": 1,
     "nodata": -3.402823e+38,
-    "sha256": "d85e36126a366d68339d571b474319aad85d8ea32cc157bd8e3d330b036edd68"
+    "sha256": null
   },
   "crs": {
     "name": "GCS_Mars_2000",
@@ -63,6 +63,23 @@
         "254": "steepest traversable",
         "255": "impassable (slope above threshold)"
       }
+    },
+    "radiation": {
+      "file": "radiation.bin",
+      "dtype": "float32",
+      "unit": "relative_factor",
+      "order": "row-major",
+      "bytes": 4000000,
+      "calibrated_baseline_msv_per_h": 0.03275326170655567,
+      "source": "NASA MSL RAD Sol 805 + Horizon Sky View Factor Model"
+    },
+    "thermal_inertia": {
+      "file": "thermal_inertia.bin",
+      "dtype": "float32",
+      "unit": "J/(m^2*K*s^0.5)",
+      "order": "row-major",
+      "bytes": 4000000,
+      "source": "NASA MGS TES Putzig & Mellon 2007"
     }
   },
   "policy": {
@@ -80,5 +97,12 @@
     "cells_nodata": 0,
     "cells_impassable": 184585,
     "fraction_impassable": 0.184585
+  },
+  "environment_summary": {
+    "radiation_dose_rate_msv_h": 0.03275326170655567,
+    "mean_surface_temp_c": 1.657760000000053,
+    "ambient_pressure_pa": 750.0,
+    "mean_thermal_inertia": 263.9672546386719,
+    "terrain_traction": "high/solid"
   }
 }

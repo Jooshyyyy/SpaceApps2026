@@ -1,0 +1,8 @@
+{
+  "id": 12,
+  "name": "MGS MOC Wide Angle Atlas",
+  "kind": "visual",
+  "source": "NASA MGS / MOC / ASU",
+  "page": "https://www.mars.asu.edu/data/moc_256/",
+  "note": "Cartograf\u00eda visual. Por defecto baja teselas de Gale y Jezero."
+}

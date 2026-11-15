@@ -1,0 +1,8 @@
+{
+  "id": 8,
+  "name": "MGS TES Global Dust Abundance",
+  "kind": "numeric",
+  "source": "NASA MGS / ASU",
+  "page": "https://tes.mars.asu.edu/products/index.html",
+  "note": "Mineralog\u00eda ~16 km/p\u00edxel. Cubo ENVI 4 ppd (banda surface dust) + TIF."
+}

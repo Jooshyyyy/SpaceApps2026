@@ -1,0 +1,8 @@
+{
+  "id": 17,
+  "name": "MRO CRISM MTRDR (observaci\u00f3n localizada)",
+  "kind": "spectral",
+  "source": "NASA PDS / MRO CRISM",
+  "page": "https://pds-geosciences.wustl.edu/missions/mro/crism.htm",
+  "note": "Por defecto FRT000047A3 (Nili Fossae / Jezero). Espectro local, no mapa global."
+}

@@ -1,0 +1,47 @@
+{
+  "format": "mars-eva-env/1",
+  "aoi_name": "lower-mount-sharp-nw-flank",
+  "radiation": {
+    "source": "NASA MSL RAD (Curiosity) Sol 805",
+    "detector_metrics": {
+      "sol": 805,
+      "observations_count": 176,
+      "mean_obs_dose_uGy": 8.74330125,
+      "obs_duration_s": 961.0,
+      "dose_rate_uGy_per_h": 32.75326170655567,
+      "dose_rate_msv_per_h": 0.03275326170655567,
+      "min_obs_dose_uGy": 4.64479,
+      "max_obs_dose_uGy": 9.65278
+    },
+    "surface_model": {
+      "calibrated_baseline_msv_per_h": 0.03275326170655567,
+      "mean_exposure_factor": 0.8503012657165527,
+      "min_exposure_factor": 0.0,
+      "max_exposure_factor": 1.0,
+      "mean_svf": 0.9645278453826904,
+      "min_svf": 0.4576137065887451,
+      "max_svf": 1.0
+    },
+    "unit": "relative_factor_and_mSv_per_h"
+  },
+  "atmosphere": {
+    "source": "NASA MSL REMS Sol 1",
+    "ambient_pressure_pa": 750.0,
+    "ambient_temperature_k": 274.80776000000003,
+    "ambient_temperature_c": 1.657760000000053,
+    "atmospheric_density_kg_m3": 0.014446223657410011,
+    "suit_pressure_differential_kpa": 29.6
+  },
+  "thermal_and_substrate": {
+    "source": "MGS TES (Putzig & Mellon 2007)",
+    "metrics": {
+      "mean_daytime_ti": 263.9672546386719,
+      "min_daytime_ti": 246.95242309570312,
+      "max_daytime_ti": 279.30096435546875,
+      "regional_nighttime_ti": 305.6666564941406,
+      "geotechnical_classification": "cemented sand / duricrust with moderate bearing capacity",
+      "sinkage_risk": "low-to-moderate"
+    },
+    "unit": "J/(m^2 K s^0.5)"
+  }
+}
