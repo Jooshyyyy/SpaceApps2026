@@ -28,6 +28,8 @@ import threading
 import time
 from pathlib import Path
 
+import watch_gateway
+
 HERE = Path(__file__).resolve().parent
 MAX_LINE = 200
 WATCH_UDP_PORT = 4210  # el reloj se anuncia por broadcast ("$H,reloj") y recibe las tramas por WiFi
@@ -37,9 +39,11 @@ FLAG_NAMES = ["STORM", "RAD_PEAK", "O2_LOW", "BATT_LOW", "COMMS_LOST", "ROUTE_ST
 
 # ---------------------------------------------------------------- reloj USB
 class SerialPort:
-    def __init__(self, path: str):
+    def __init__(self, path: str, cloud: bool = False):
         self.path = path
+        self.cloud = cloud  # cloud: sin UDP local ni puerto serie; el enlace es /reloj/ws
         self.fd = None
+        self.link = None    # watch_gateway.DeviceLink del reloj conectado por WebSocket
         self.lock = threading.Lock()
         self.sent = 0
         self.error = ""
@@ -48,11 +52,13 @@ class SerialPort:
         self.wifi_addr = None  # (ip, puerto) del reloj por WiFi, aprendido de su anuncio
         self.wifi_seen = 0.0
         self.last_btn = {}     # anti-duplicados: el reloj manda cada botón 3 veces por UDP
-        self.udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.udp.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.udp.bind(("0.0.0.0", WATCH_UDP_PORT))
-        threading.Thread(target=self._reader, daemon=True).start()
-        threading.Thread(target=self._udp_reader, daemon=True).start()
+        self.udp = None
+        if not cloud:
+            self.udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self.udp.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self.udp.bind(("0.0.0.0", WATCH_UDP_PORT))
+            threading.Thread(target=self._reader, daemon=True).start()
+            threading.Thread(target=self._udp_reader, daemon=True).start()
 
     def _button(self, name: str, via: str):
         with self.lock:
@@ -62,6 +68,23 @@ class SerialPort:
             self.last_btn[name] = now
             self.seq += 1
             self.buttons = (self.buttons + [{"seq": self.seq, "t": now, "button": name, "via": via}])[-20:]
+
+    def device_button(self, name: str):
+        """Botón recibido por WebSocket: mismas garantías que _button."""
+        self._button(name, "ws")
+
+    def claim_device(self, link) -> bool:
+        """Un solo reloj activo: el segundo upgrade se rechaza, no se roba el enlace."""
+        with self.lock:
+            if self.link is not None:
+                return False
+            self.link = link
+            return True
+
+    def release_device(self, link):
+        with self.lock:
+            if self.link is link:
+                self.link = None
 
     def wifi_ok(self) -> bool:
         return self.wifi_addr is not None and time.time() - self.wifi_seen < 6
@@ -134,7 +157,7 @@ class SerialPort:
         self.fd = fd
 
     def write(self, data: bytes) -> bool:
-        """Manda la trama por WiFi (si el reloj se anunció) y por USB (si está conectado)."""
+        """Manda la trama por WiFi/USB local o por el WebSocket del reloj en cloud."""
         ok = False
         if self.wifi_ok():
             try:
@@ -143,26 +166,36 @@ class SerialPort:
             except OSError:
                 pass
         with self.lock:
-            try:
-                if self.fd is None:
-                    self._open()
-                os.write(self.fd, data)
-                ok = True
-            except OSError as exc:
-                if self.fd is not None:
-                    os.close(self.fd)
-                    self.fd = None
-                if not ok:
-                    self.error = str(exc)
+            link = self.link
+        if link is not None and link.send_text(data):
+            ok = True
+        with self.lock:
+            if not self.cloud:
+                try:
+                    if self.fd is None:
+                        self._open()
+                    os.write(self.fd, data)
+                    ok = True
+                except OSError as exc:
+                    if self.fd is not None:
+                        os.close(self.fd)
+                        self.fd = None
+                    if not ok:
+                        self.error = str(exc)
             if ok:
                 self.sent += 1
                 self.error = ""
+            elif self.cloud:
+                self.error = "reloj sin enlace WebSocket"
         return ok
 
     def status(self) -> dict:
         wifi = self.wifi_ok()
-        return {"tty": self.path, "open": self.fd is not None or wifi, "usb": self.fd is not None,
-                "wifi": self.wifi_addr[0] if wifi else None, "sent": self.sent, "error": self.error}
+        with self.lock:
+            link = self.link
+        return {"tty": self.path, "open": self.fd is not None or wifi or link is not None,
+                "usb": self.fd is not None, "wifi": self.wifi_addr[0] if wifi else None,
+                "sent": self.sent, "error": self.error, "ws": link is not None, "cloud": self.cloud}
 
 
 # ---------------------------------------------------------------- Edge Bus
@@ -423,7 +456,8 @@ class Shared:
 SHARED = Shared()
 
 
-def make_handler(serial: SerialPort, bus: BusClient, data_dir: Path, busproc: "BusProcess", planner: Planner):
+def make_handler(serial: SerialPort, bus: BusClient, data_dir: Path, busproc: "BusProcess", planner: Planner,
+                 watch: "watch_gateway.WatchGateway | None" = None):
     data_files = {"/elevation.bin", "/slope.bin"}
     owner = {"id": None}  # solo la última pantalla del astronauta que abrió la página le escribe al reloj
 
@@ -468,6 +502,13 @@ def make_handler(serial: SerialPort, bus: BusClient, data_dir: Path, busproc: "B
             if path == "/eva/ordenes":  # ?since=N
                 since = query[6:] if query.startswith("since=") else "0"
                 return self._reply(200, SHARED.since(int(since) if since.isdigit() else 0))
+            if path == "/reloj/ws":  # dispositivo del reloj por WebSocket (WSS detrás del proxy)
+                if watch is None:
+                    return self._reply(404, {"error": "not found"})
+                rejection = watch.handle(self, self.path)
+                if rejection is not None:
+                    return self._reply(*rejection)
+                return
             if path == "/estado":
                 return self._reply(200, serial.status())
             if path == "/reloj":  # botones del reloj: ?since=N
@@ -475,6 +516,8 @@ def make_handler(serial: SerialPort, bus: BusClient, data_dir: Path, busproc: "B
                 return self._reply(200, {"events": serial.events_since(int(since) if since.isdigit() else 0),
                                          **serial.status()})
             if path == "/plan":  # ?goal=r,c[&start=r,c]
+                if planner is None:
+                    return self._reply(503, {"error": "motor de rutas no disponible"})
                 try:
                     q = dict(kv.split("=", 1) for kv in query.split("&") if "=" in kv)
                     goal, start = cell(q["goal"]), cell(q.get("start", "500,500"))
@@ -485,10 +528,15 @@ def make_handler(serial: SerialPort, bus: BusClient, data_dir: Path, busproc: "B
                 except (subprocess.TimeoutExpired, ValueError) as exc:
                     return self._reply(500, {"error": str(exc)})
             if path == "/bus":
+                if bus is None:
+                    return self._reply(503, {"error": "bus no disponible", "connected": False})
                 rev = query[4:] if query.startswith("rev=") else None
                 return self._reply(200, bus.snapshot(int(rev) if rev and rev.isdigit() else None))
             if path in data_files:  # capas del backend, no copias locales
-                body = (data_dir / path[1:]).read_bytes()
+                source = data_dir / path[1:]
+                if not source.is_file():
+                    return self._reply(404, {"error": "capa no disponible"})
+                body = source.read_bytes()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/octet-stream")
                 self.send_header("Content-Length", str(len(body)))
@@ -537,6 +585,8 @@ def make_handler(serial: SerialPort, bus: BusClient, data_dir: Path, busproc: "B
                 SHARED.order(kind)
                 return self._reply(200, {"ok": True})
             if self.path == "/bus/reset":  # nueva EVA: reinicia eva_bus con el objetivo elegido
+                if busproc is None:
+                    return self._reply(503, {"error": "bus no disponible"})
                 try:
                     msg = json.loads(self._body(256) or b"")
                     goal = (int(msg["row"]), int(msg["col"]))
@@ -548,6 +598,8 @@ def make_handler(serial: SerialPort, bus: BusClient, data_dir: Path, busproc: "B
                 busproc.restart(goal)
                 return self._reply(200, {"ok": True})
             if self.path == "/bus/cmd":
+                if bus is None:
+                    return self._reply(503, {"error": "bus no disponible"})
                 raw = self._body(1024)
                 try:
                     msg = json.loads(raw or b"")
@@ -578,26 +630,54 @@ def main():
     ap.add_argument("--port", type=int, default=8791)
     ap.add_argument("--bus-port", type=int, default=8765)
     ap.add_argument("--tty", default="auto", help="puerto del reloj; auto = primer /dev/ttyUSB*")
+    ap.add_argument("--host", default=None,
+                    help="interfaz HTTP; por defecto 127.0.0.1, y 0.0.0.0 con --cloud")
+    ap.add_argument("--cloud", action="store_true",
+                    help="despliegue público: /reloj/ws con WATCH_TOKEN, sin UDP ni puerto serie")
     args = ap.parse_args()
     backend = args.backend.resolve()
-    mission = json.loads((HERE / "mission.json").read_text())
-    first = mission["stops"][0]
-    busproc = BusProcess(backend, args.bus_port, (first["row"], first["col"]))
-    bus = BusClient(args.bus_port)
-    if args.tty == "auto":  # al reconectar el cable el ESP32 puede pasar de ttyUSB0 a ttyUSB1
-        ports = sorted(Path("/dev").glob("ttyUSB*"))
-        args.tty = str(ports[0]) if ports else "/dev/ttyUSB0"
-    serial = SerialPort(args.tty)
+    watch = None
+    if args.cloud:
+        token = os.environ.get("WATCH_TOKEN", "")
+        if not token or token != token.strip() or any(ch.isspace() for ch in token):
+            raise SystemExit("WATCH_TOKEN es obligatorio y no puede tener espacios en modo --cloud")
+        data_dir = backend / "data" / "processed"
+        if ((backend / "communication" / "eva_bus").is_file()
+                and (backend / "core_engine" / "eva_engine").is_file()
+                and (data_dir / "cost.bin").is_file()):
+            mission = json.loads((HERE / "mission.json").read_text())
+            first = mission["stops"][0]
+            busproc = BusProcess(backend, args.bus_port, (first["row"], first["col"]))
+            bus = BusClient(args.bus_port)
+            planner = Planner(backend)
+        else:  # la web pública arranca sin ingesta ni binarios pesados
+            busproc, bus, planner = None, None, None
+            print("cloud: bus y rutas desactivados (faltan ejecutables o capas procesadas)", flush=True)
+        serial = SerialPort("wss", cloud=True)
+        watch = watch_gateway.WatchGateway(serial, token)
+    else:
+        mission = json.loads((HERE / "mission.json").read_text())
+        first = mission["stops"][0]
+        busproc = BusProcess(backend, args.bus_port, (first["row"], first["col"]))
+        bus = BusClient(args.bus_port)
+        data_dir = backend / "data" / "processed"
+        planner = Planner(backend)
+        if args.tty == "auto":  # al reconectar el cable el ESP32 puede pasar de ttyUSB0 a ttyUSB1
+            ports = sorted(Path("/dev").glob("ttyUSB*"))
+            args.tty = str(ports[0]) if ports else "/dev/ttyUSB0"
+        serial = SerialPort(args.tty)
+    host = args.host or ("0.0.0.0" if args.cloud else "127.0.0.1")
     server = http.server.ThreadingHTTPServer(
-        ("127.0.0.1", args.port), make_handler(serial, bus, backend / "data" / "processed", busproc, Planner(backend)))
-    print(f"Prototipo: http://127.0.0.1:{args.port}/app.html · bus ws://127.0.0.1:{args.bus_port} "
-          f"· reloj {args.tty}", flush=True)
+        (host, args.port), make_handler(serial, bus, data_dir, busproc, planner, watch))
+    print(f"Prototipo: http://{host}:{args.port}/app.html · bus ws://127.0.0.1:{args.bus_port} "
+          f"· reloj {serial.path}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
-        busproc.stop()
+        if busproc is not None:
+            busproc.stop()
 
 
 if __name__ == "__main__":

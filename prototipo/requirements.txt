@@ -1,0 +1,6 @@
+# El servidor del prototipo y el gateway /reloj/ws usan únicamente la
+# biblioteca estándar de Python 3.11 o posterior.
+#
+# No hay dependencias de terceros que instalar en la imagen:
+#   python3 -m pip install -r prototipo/requirements.txt
+# es un no-op intencional. Si en el futuro se agrega una, fijala con versión.
