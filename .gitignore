@@ -36,6 +36,11 @@ __pycache__/
 venv/
 *.egg-info/
 
+# --- Remotion -----------------------------------------------------------
+video/node_modules/
+video/.remotion/
+video/out/preview.png
+
 # --- Editors / OS -------------------------------------------------------
 .DS_Store
 .idea/
