@@ -27,6 +27,9 @@ from ingest import (  # noqa: E402
     COST_INVALID,
     COST_MAX,
     COST_MIN,
+    DEFAULT_AOI_COL,
+    DEFAULT_AOI_ROW,
+    DEFAULT_AOI_SIZE,
     DEFAULT_MAX_SLOPE_DEG,
     NODATA_SENTINEL,
     GeoRef,
@@ -329,6 +332,19 @@ class TestResolveWindow(unittest.TestCase):
         with TiffDEM(self.path) as dem:
             w = resolve_window(dem, row=10, col=20, size=30)
             self.assertEqual((w.row0, w.col0, w.rows, w.cols), (10, 20, 30, 30))
+
+    def test_default_window_is_the_curiosity_eva_site(self):
+        # Use a lightweight stand-in large enough for the production default;
+        # resolve_window only needs these bounds for a pixel-based window.
+        class LargeDEM:
+            height = 40100
+            width = 36000
+
+        w = resolve_window(LargeDEM())
+        self.assertEqual(
+            (w.row0, w.col0, w.rows, w.cols),
+            (DEFAULT_AOI_ROW, DEFAULT_AOI_COL, DEFAULT_AOI_SIZE, DEFAULT_AOI_SIZE),
+        )
 
     def test_bbox_maps_to_the_expected_pixel_window(self):
         with TiffDEM(self.path) as dem:

@@ -42,6 +42,15 @@ COST_MIN = 1  # flattest traversable cell
 COST_MAX = 254  # steepest traversable cell
 DEFAULT_MAX_SLOPE_DEG = 20.0
 
+# Curiosity EVA study site: a 1 km square covering 83 rover positions from
+# sols 4487--4752 (2025).  Unlike the former Lower Mount Sharp default at
+# row 24000 / col 28000, this window lies on Curiosity's documented traverse
+# and is therefore suitable for a local, astronaut-walkable EVA scenario.
+DEFAULT_AOI_ROW = 32187
+DEFAULT_AOI_COL = 14912
+DEFAULT_AOI_SIZE = 1000
+DEFAULT_AOI_NAME = "curiosity-2025-eva-site"
+
 
 class TiffLayoutError(RuntimeError):
     """The file is a TIFF we cannot read row-wise; fail loudly, never guess."""
@@ -326,7 +335,7 @@ def resolve_window(
     dem: TiffDEM,
     row: int | None = None,
     col: int | None = None,
-    size: int = 1000,
+    size: int = DEFAULT_AOI_SIZE,
     bbox: tuple[float, float, float, float] | None = None,
 ) -> Window:
     """Turn either a pixel origin or a lon/lat bbox into a pixel window."""
@@ -341,8 +350,8 @@ def resolve_window(
         if rows <= 0 or cols <= 0:
             raise ValueError(f"bbox {bbox} resolves to an empty window")
     else:
-        row0 = 0 if row is None else row
-        col0 = 0 if col is None else col
+        row0 = DEFAULT_AOI_ROW if row is None else row
+        col0 = DEFAULT_AOI_COL if col is None else col
         rows = cols = size
     if row0 < 0 or col0 < 0 or row0 + rows > dem.height or col0 + cols > dem.width:
         raise ValueError(
@@ -492,7 +501,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="ingest.py",
         description=(
-            "Layer 1 ingestion: crop a 1 km x 1 km AOI out of the Gale DEM and emit "
+            "Layer 1 ingestion: crop a local EVA AOI out of the Gale DEM and emit "
             "elevation.bin, slope.bin, cost.bin and aoi.json for the C++ core engine."
         ),
         epilog=(
@@ -507,9 +516,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--tif", required=True, type=Path, help="source DEM GeoTIFF")
     p.add_argument("--out", type=Path, default=None, help="output directory (required unless --info)")
-    p.add_argument("--row", type=int, default=None, help="AOI origin row in pixels (default 0)")
-    p.add_argument("--col", type=int, default=None, help="AOI origin column in pixels (default 0)")
-    p.add_argument("--size", type=int, default=1000, help="AOI edge in pixels (default 1000)")
+    p.add_argument(
+        "--row", type=int, default=None,
+        help=f"AOI origin row in pixels (default Curiosity EVA site: {DEFAULT_AOI_ROW})",
+    )
+    p.add_argument(
+        "--col", type=int, default=None,
+        help=f"AOI origin column in pixels (default Curiosity EVA site: {DEFAULT_AOI_COL})",
+    )
+    p.add_argument(
+        "--size", type=int, default=DEFAULT_AOI_SIZE,
+        help=f"AOI edge in pixels (default {DEFAULT_AOI_SIZE}, approximately 1 km)",
+    )
     p.add_argument(
         "--bbox",
         type=_parse_bbox,
@@ -522,7 +540,10 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_MAX_SLOPE_DEG,
         help=f"slope exclusion threshold in degrees (default {DEFAULT_MAX_SLOPE_DEG})",
     )
-    p.add_argument("--name", default=None, help="AOI name written into aoi.json")
+    p.add_argument(
+        "--name", default=DEFAULT_AOI_NAME,
+        help=f"AOI name written into aoi.json (default {DEFAULT_AOI_NAME})",
+    )
     p.add_argument(
         "--no-checksum",
         action="store_true",

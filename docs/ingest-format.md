@@ -110,9 +110,14 @@ float32 grids and leave the uint8 grid alone. Read `aoi.json` first and check
 python3 scripts/ingest.py \
   --tif Gale_DEM_SMG_1m.tif \
   --out data/processed \
-  --row 24000 --col 28000 --size 1000 \
-  --name lower-mount-sharp-nw-flank
+  --row 32187 --col 14912 --size 1000 \
+  --name curiosity-2025-eva-site
 ```
+
+The row, column and size shown above are also the CLI defaults. This local
+1 km by 1 km study area lies on Curiosity's 2025 traverse (sols 4487--4752)
+and contains 83 documented rover positions. It is intentionally an
+astronaut-walkable EVA area, not the rover's entire multi-year traverse.
 
 `--info` prints the source raster's layout without writing anything. The
 artifacts are deterministic for the same window and threshold; the source

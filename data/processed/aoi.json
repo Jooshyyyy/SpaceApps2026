@@ -1,6 +1,6 @@
 {
   "format": "mars-eva-aoi/1",
-  "name": "lower-mount-sharp-nw-flank",
+  "name": "curiosity-2025-eva-site",
   "generated_by": "scripts/ingest.py",
   "source": {
     "path": "Gale_DEM_SMG_1m.tif",
@@ -19,19 +19,19 @@
     "prime_meridian": "Reference_Meridian"
   },
   "aoi": {
-    "row0": 24000,
-    "col0": 28000,
+    "row0": 32187,
+    "col0": 14912,
     "rows": 1000,
     "cols": 1000,
     "bbox_lonlat": {
-      "west": 137.59484806806793,
-      "south": -4.670728178598322,
-      "east": 137.61171867292606,
-      "north": -4.653857573740208
+      "west": 137.37404559168493,
+      "south": -4.808847820571703,
+      "east": 137.39091619654306,
+      "north": -4.791977215713589
     },
     "cell_size_m": {
       "dy": 0.9999999999999426,
-      "dx": 0.9966910958212368
+      "dx": 0.9964922567598987
     }
   },
   "grids": {
@@ -71,14 +71,14 @@
     "edge_handling": "one-sided differences at the raster border"
   },
   "stats": {
-    "elevation_min_m": -3867.677490234375,
-    "elevation_max_m": -3523.08837890625,
-    "relief_m": 344.589111328125,
-    "slope_mean_deg": 15.00383315246316,
-    "slope_max_deg": 75.96891410180018,
+    "elevation_min_m": -3731.021240234375,
+    "elevation_max_m": -3484.366455078125,
+    "relief_m": 246.65478515625,
+    "slope_mean_deg": 13.598789492396296,
+    "slope_max_deg": 73.8830357388352,
     "cells_total": 1000000,
     "cells_nodata": 0,
-    "cells_impassable": 184585,
-    "fraction_impassable": 0.184585
+    "cells_impassable": 214441,
+    "fraction_impassable": 0.214441
   }
 }
