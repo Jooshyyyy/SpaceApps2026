@@ -42,10 +42,22 @@ LED: verde = todo bien · amarillo = sin enlace · rojo parpadeando = peligro ·
 rojo/azul = SOS · magenta = la base confirmó · azul respirando = esperando datos.
 Las ganancias de color se calibraron con cámara para este LED (el verde brilla mucho más).
 
+Al encender muestra el logo ARES con el anillo girando alrededor del planeta (`logo_ares.h`;
+la página reproduce la misma animación en la mini pantalla simulada).
+
+**Por WiFi (el USB solo da energía):**
+1. Sin WiFi guardado, el reloj abre la red `MarsEVA-Reloj-XXXX`. Conéctate con el celular,
+   abre http://192.168.4.1, elige tu red y escribe la contraseña (queda solo en el ESP32).
+2. El reloj debe estar en la misma red que la PC del servidor. Se anuncia cada 2 s por UDP 4210
+   (`$H,reloj`) y el servidor le manda las tramas a esa IP; no hay que configurar direcciones.
+3. Si la PC tiene firewall, permite UDP 4210 desde la red local (por ejemplo, con ufw:
+   `sudo ufw allow from <tu-red>/24 to any port 4210 proto udp`).
+4. Para borrar el WiFi guardado: mantén el botón SOS mientras enciendes el reloj.
+
 Herramientas para revisar el cableado:
 - `diagnostico_pines` busca la OLED en todos los pares SDA/SCL y lista los pines con conexión externa.
 - `calibrar_led` controla cada canal del LED desde la PC por serie.
 - `prueba_led` y `escaner_i2c`: pruebas rápidas.
 
 Trama tablet → reloj: `$W,<rumbo|-1>,<az>,<dist_m>,<o2%>,<bat%>,<ttr_s>,<dosis_uSv_x10>,<flags>,<texto>\n`.
-Reloj → tablet: `$B,SOS` / `$B,CANCEL`.
+Reloj → tablet: `$B,SOS` / `$B,CANCEL`. Por WiFi van en UDP 4210 (el reloj repite cada botón 3 veces; el servidor descarta los duplicados).

@@ -30,6 +30,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 MAX_LINE = 200
+WATCH_UDP_PORT = 4210  # el reloj se anuncia por broadcast ("$H,reloj") y recibe las tramas por WiFi
 CONTROL_TYPES = {"position", "set_goal", "storm", "radiation_peak", "comms_lost"}
 FLAG_NAMES = ["STORM", "RAD_PEAK", "O2_LOW", "BATT_LOW", "COMMS_LOST", "ROUTE_STALE", "EVA_ABORT"]
 
@@ -44,7 +45,43 @@ class SerialPort:
         self.error = ""
         self.buttons = []   # eventos de botones del reloj: {"seq", "t", "button"}
         self.seq = 0
+        self.wifi_addr = None  # (ip, puerto) del reloj por WiFi, aprendido de su anuncio
+        self.wifi_seen = 0.0
+        self.last_btn = {}     # anti-duplicados: el reloj manda cada botón 3 veces por UDP
+        self.udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.udp.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.udp.bind(("0.0.0.0", WATCH_UDP_PORT))
         threading.Thread(target=self._reader, daemon=True).start()
+        threading.Thread(target=self._udp_reader, daemon=True).start()
+
+    def _button(self, name: str, via: str):
+        with self.lock:
+            now = time.time()
+            if via == "wifi" and now - self.last_btn.get(name, 0) < 1.0:
+                return
+            self.last_btn[name] = now
+            self.seq += 1
+            self.buttons = (self.buttons + [{"seq": self.seq, "t": now, "button": name, "via": via}])[-20:]
+
+    def wifi_ok(self) -> bool:
+        return self.wifi_addr is not None and time.time() - self.wifi_seen < 6
+
+    def _udp_reader(self):
+        """Reloj por WiFi: anuncios "$H,reloj" y botones "$B,SOS" del mismo equipo."""
+        while True:
+            try:
+                data, addr = self.udp.recvfrom(256)
+            except OSError:
+                time.sleep(1)
+                continue
+            for line in data.split(b"\n"):
+                line = line.strip()
+                if line == b"$H,reloj":
+                    with self.lock:
+                        self.wifi_addr, self.wifi_seen = addr, time.time()
+                elif (line.startswith(b"$B,") and line[3:].isalnum() and len(line) < 24
+                      and self.wifi_addr and addr[0] == self.wifi_addr[0]):
+                    self._button(line[3:].decode(), "wifi")
 
     def _reader(self):
         """Lee las líneas que manda el ESP32 ("$B,SOS") y las guarda como eventos."""
@@ -79,10 +116,7 @@ class SerialPort:
                 line, buf = buf.split(b"\n", 1)
                 line = line.strip()
                 if line.startswith(b"$B,") and line[3:].isalnum() and len(line) < 24:
-                    with self.lock:
-                        self.seq += 1
-                        self.buttons = (self.buttons + [{"seq": self.seq, "t": time.time(),
-                                                          "button": line[3:].decode()}])[-20:]
+                    self._button(line[3:].decode(), "usb")
 
     def events_since(self, since: int):
         with self.lock:
@@ -100,23 +134,35 @@ class SerialPort:
         self.fd = fd
 
     def write(self, data: bytes) -> bool:
+        """Manda la trama por WiFi (si el reloj se anunció) y por USB (si está conectado)."""
+        ok = False
+        if self.wifi_ok():
+            try:
+                self.udp.sendto(data, self.wifi_addr)
+                ok = True
+            except OSError:
+                pass
         with self.lock:
             try:
                 if self.fd is None:
                     self._open()
                 os.write(self.fd, data)
-                self.sent += 1
-                self.error = ""
-                return True
+                ok = True
             except OSError as exc:
-                self.error = str(exc)
                 if self.fd is not None:
                     os.close(self.fd)
                     self.fd = None
-                return False
+                if not ok:
+                    self.error = str(exc)
+            if ok:
+                self.sent += 1
+                self.error = ""
+        return ok
 
     def status(self) -> dict:
-        return {"tty": self.path, "open": self.fd is not None, "sent": self.sent, "error": self.error}
+        wifi = self.wifi_ok()
+        return {"tty": self.path, "open": self.fd is not None or wifi, "usb": self.fd is not None,
+                "wifi": self.wifi_addr[0] if wifi else None, "sent": self.sent, "error": self.error}
 
 
 # ---------------------------------------------------------------- Edge Bus

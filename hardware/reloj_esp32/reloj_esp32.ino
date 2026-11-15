@@ -1,6 +1,12 @@
 // Mars EVA Nav — reloj de muñeca (simulación)
 // ESP32 (NodeMCU ESP-32S) + OLED 1.3" I2C 128x64.
-// Recibe por USB-serie (115200) el estado que calcula el prototipo web y lo dibuja.
+// Recibe el estado que calcula el prototipo web y lo dibuja, por WiFi (UDP 4210) o por USB-serie (115200).
+//
+// WiFi: la primera vez (o manteniendo el botón SOS al encender) el reloj abre la red
+//   "MarsEVA-Reloj-XXXX"; desde el celular entra a http://192.168.4.1 y elige tu WiFi.
+//   La contraseña la escribe el usuario en esa página y queda guardada en el ESP32.
+//   Conectado, el reloj se anuncia por broadcast ("$H,reloj") y servidor.py le responde con las tramas.
+//   El USB puede quedar solo como alimentación.
 //
 // Conexión OLED -> ESP32:  GND->GND  VCC->3V3  SDA->P22  SCL->P21
 // Botón de emergencia (SOS): pulsador entre GPIO25 y GND, resistencia de pull-up a 3V3.
@@ -24,6 +30,11 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <U8g2lib.h>
+#include <WiFi.h>
+#include <WiFiUdp.h>
+#include <WebServer.h>
+#include <Preferences.h>
+#include "logo_ares.h"
 
 // Las pantallas de 1.3" suelen usar SH1106. Si la imagen sale corrida 2 píxeles
 // o con una franja de basura a la derecha, comenta esta línea y usa la de SSD1306.
@@ -39,6 +50,8 @@ constexpr uint8_t LED_R = 27, LED_G = 26, LED_B = 14;  // calibrado con la cáma
 constexpr bool LED_ANODO_COMUN = false;  // tu LED es de cátodo común (pata común a GND)
 // Ganancia por color (0-255) medida con la cámara: iguala el brillo de los tres canales.
 constexpr uint8_t GAIN_R = 255, GAIN_G = 100, GAIN_B = 255;
+constexpr uint16_t UDP_PORT = 4210;          // mismo puerto en el reloj y en servidor.py
+constexpr uint32_t WIFI_CONNECT_MS = 20000;  // espera al conectar con la red guardada
 
 struct State {
   float brg = -1, az = 0, dist = 0;
@@ -159,6 +172,135 @@ void drawInfo() {
   drawBar(58, "BAT", st.bat);
 }
 
+// ---------------------------------------------------------------- red WiFi
+enum NetMode { NET_OFF, NET_STA, NET_AP };
+NetMode netMode = NET_OFF;
+WiFiUDP udp;
+WebServer web(80);
+Preferences prefs;
+IPAddress serverIp;
+uint16_t serverPort = 0;
+char apName[24] = "";
+String wifiSsid;
+
+String htmlEscape(const String& in) {
+  String o;
+  for (char c : in) {
+    if (c == '<') o += "&lt;"; else if (c == '>') o += "&gt;"; else if (c == '&') o += "&amp;";
+    else if (c == '"') o += "&quot;"; else o += c;
+  }
+  return o;
+}
+
+void handlePortal() {  // página de configuración: elegir la red y escribir la contraseña
+  const int n = WiFi.scanNetworks();
+  String opts;
+  for (int i = 0; i < n; i++) {
+    const String e = htmlEscape(WiFi.SSID(i));
+    opts += "<option value=\"" + e + "\">" + e + " (" + String(WiFi.RSSI(i)) + " dBm)</option>";
+  }
+  web.send(200, "text/html; charset=utf-8",
+    "<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'><title>Reloj Mars EVA</title>"
+    "<body style='font-family:system-ui;background:#111;color:#eee;max-width:420px;margin:24px auto;padding:0 16px'>"
+    "<h2>Reloj Mars EVA · WiFi</h2><form method=post action=/guardar>"
+    "<p>Red<br><input name=ssid list=redes required style='width:100%;padding:10px;font-size:16px'><datalist id=redes>" + opts + "</datalist></p>"
+    "<p>Contraseña<br><input name=pass type=password style='width:100%;padding:10px;font-size:16px'></p>"
+    "<button style='width:100%;padding:12px;font-size:16px'>Guardar y conectar</button></form>"
+    "<p style='color:#999;font-size:13px'>La red debe ser la misma de la computadora que corre servidor.py.</p>");
+}
+
+void handleSave() {
+  const String ssid = web.arg("ssid"), pass = web.arg("pass");
+  if (ssid.isEmpty() || ssid.length() > 32 || pass.length() > 63) { web.send(400, "text/plain", "Datos inválidos"); return; }
+  prefs.begin("wifi", false);
+  prefs.putString("ssid", ssid);
+  prefs.putString("pass", pass);
+  prefs.end();
+  web.send(200, "text/html; charset=utf-8", "<meta name=viewport content='width=device-width'><body style='font-family:system-ui'>"
+                                           "<h3>Guardado. El reloj se reinicia y se conecta a " + htmlEscape(ssid) + ".</h3>");
+  delay(1500);
+  ESP.restart();
+}
+
+void startPortal() {
+  snprintf(apName, sizeof(apName), "MarsEVA-Reloj-%04X", (uint16_t)(ESP.getEfuseMac() >> 32));
+  WiFi.mode(WIFI_AP_STA);  // AP para el portal + STA para poder buscar redes
+  WiFi.softAP(apName);
+  web.on("/", handlePortal);
+  web.on("/guardar", HTTP_POST, handleSave);
+  web.onNotFound(handlePortal);
+  web.begin();
+  netMode = NET_AP;
+  Serial.printf("$D,wifi portal %s 192.168.4.1\n", apName);
+}
+
+void drawMsg(const char* a, const char* b, const char* c = "") {
+  oled.clearBuffer();
+  oled.setFont(u8g2_font_6x10_tr);
+  oled.drawStr(0, 14, a); oled.drawStr(0, 32, b); oled.drawStr(0, 50, c);
+  oled.sendBuffer();
+}
+
+bool connectSaved() {
+  prefs.begin("wifi", true);
+  wifiSsid = prefs.getString("ssid", "");
+  const String pass = prefs.getString("pass", "");
+  prefs.end();
+  if (wifiSsid.isEmpty()) return false;
+  WiFi.mode(WIFI_STA);
+  WiFi.setAutoReconnect(true);
+  WiFi.begin(wifiSsid.c_str(), pass.c_str());
+  const uint32_t t0 = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - t0 < WIFI_CONNECT_MS) {
+    drawMsg("CONECTANDO WIFI", wifiSsid.substring(0, 21).c_str(), String((WIFI_CONNECT_MS - (millis() - t0)) / 1000).c_str());
+    delay(250);
+  }
+  if (WiFi.status() != WL_CONNECTED) return false;
+  udp.begin(UDP_PORT);
+  netMode = NET_STA;
+  Serial.printf("$D,wifi ok %s %s\n", wifiSsid.c_str(), WiFi.localIP().toString().c_str());
+  return true;
+}
+
+void setupNet() {
+  pinMode(BTN_SOS, INPUT_PULLUP);
+  if (digitalRead(BTN_SOS) == LOW) {  // botón apretado al encender: borrar la red guardada
+    drawMsg("BORRANDO WIFI", "suelta el boton");
+    prefs.begin("wifi", false); prefs.clear(); prefs.end();
+    while (digitalRead(BTN_SOS) == LOW) delay(20);
+  }
+  if (!connectSaved()) startPortal();
+}
+
+void sendButton(const char* msg) {  // a la base: por USB y, si hay WiFi, por UDP (3 veces: UDP puede perder paquetes)
+  Serial.println(msg);
+  if (netMode != NET_STA || !serverPort || WiFi.status() != WL_CONNECTED) return;
+  for (int i = 0; i < 3; i++) {
+    udp.beginPacket(serverIp, serverPort); udp.print(msg); udp.print('\n'); udp.endPacket();
+    delay(30);
+  }
+}
+
+void netLoop(uint32_t now) {
+  if (netMode == NET_AP) { web.handleClient(); return; }
+  if (netMode != NET_STA || WiFi.status() != WL_CONNECTED) return;
+  static uint32_t lastHello = 0;
+  if (now - lastHello > 2000) {  // anuncio: el servidor aprende la IP del reloj
+    lastHello = now;
+    udp.beginPacket(IPAddress(255, 255, 255, 255), UDP_PORT); udp.print("$H,reloj\n"); udp.endPacket();
+  }
+  char buf[160];
+  for (int sz = udp.parsePacket(); sz > 0; sz = udp.parsePacket()) {
+    const int n = udp.read(buf, sizeof(buf) - 1);
+    if (n <= 0) continue;
+    buf[n] = 0;
+    serverIp = udp.remoteIP();
+    serverPort = udp.remotePort();
+    char* save = nullptr;
+    for (char* l = strtok_r(buf, "\r\n", &save); l; l = strtok_r(nullptr, "\r\n", &save)) parseLine(l);
+  }
+}
+
 // Botón SOS: devuelve el avance 0..1 mientras se mantiene apretado.
 float sosButton(uint32_t now) {
   static uint32_t downAt = 0;
@@ -171,7 +313,7 @@ float sosButton(uint32_t now) {
   if (fired) return 0;
   if (now - downAt >= SOS_HOLD_MS) {
     // Con un SOS activo, mantener de nuevo lo cancela (falsa alarma).
-    Serial.println((st.flags & F_SOS) ? "$B,CANCEL" : "$B,SOS");  // a la base (servidor.py)
+    sendButton((st.flags & F_SOS) ? "$B,CANCEL" : "$B,SOS");  // a la base (servidor.py)
     fired = true;
     return 0;
   }
@@ -208,23 +350,75 @@ void updateLed(uint32_t now, bool dataOk, float hold) {
   ledRGB(0, 255, 0);                                           // todo bien: verde
 }
 
+// Logo ARES animado: el anillo da dos vueltas alrededor del planeta y se frena en la pose del logo
+void drawAres(float centerDeg) {
+  oled.clearBuffer();
+  oled.setDrawColor(1);
+  oled.drawXBMP(0, 0, LOGO_W, LOGO_H, LOGO_ARES);
+  for (int y = 0; y <= (int)PL_BOT; y++) {  // planeta: disco recortado abajo
+    const float dy = y - PL_CY, h = PL_R * PL_R - dy * dy;
+    if (h < 0) continue;
+    const float w = sqrtf(h);
+    const int x0 = (int)ceilf(PL_CX - w), x1 = (int)floorf(PL_CX + w);
+    oled.drawHLine(x0, y, x1 - x0 + 1);
+  }
+  const float ct = cosf(RG_TH), st = sinf(RG_TH);
+  for (int pass = 0; pass < 2; pass++) {  // 0: hueco negro delante del planeta, 1: anillo blanco
+    oled.setDrawColor(pass);
+    for (int i = 0; i <= 220; i++) {
+      const float f = i / 220.0f, k = sinf(PI * f);
+      if (k <= 0.15f) continue;
+      const float t = (centerDeg - 125 + 250 * f) * DEG_TO_RAD;
+      const float u = RG_A * cosf(t), v = RG_B * sinf(t);
+      const float x = RG_CX + u * ct - v * st, y = RG_CY + u * st + v * ct;
+      const int xi = lroundf(x), yi = lroundf(y), w = 1 + (k > 0.35f) + (k > 0.75f);
+      const bool front = sinf(t) > 0;
+      if (pass == 0) {
+        if (front) oled.drawBox(xi - 1, yi - 1, 3, w + 2);
+      } else {
+        const float dx = x - PL_CX, dy = y - PL_CY;
+        if (!front && dx * dx + dy * dy <= PL_R * PL_R && y <= PL_BOT) continue;  // detrás del planeta
+        oled.drawBox(xi, yi, 1, w);
+      }
+    }
+  }
+  oled.setDrawColor(1);
+  oled.setFont(u8g2_font_4x6_tr);
+  oled.drawStr((128 - oled.getStrWidth("MARS NAVIGATION MAP")) / 2, 63, "MARS NAVIGATION MAP");
+  oled.sendBuffer();
+}
+
+void showLogo() {  // ~3,7 s: 3 s girando (frenando al final) + 0,7 s quieto; LED naranja Marte que se enciende
+  const uint32_t t0 = millis();
+  for (;;) {
+    const uint32_t el = millis() - t0;
+    if (el > 3700) break;
+    const float p = min(el / 3000.0f, 1.0f), e = 1 - (1 - p) * (1 - p) * (1 - p);
+    drawAres(86 - 720 * (1 - e));
+    const uint8_t k = (uint8_t)(250 * min(el / 1500.0f, 1.0f));
+    ledRGB(k, k / 6, 0);
+  }
+}
+
 void setup() {
   Serial.begin(115200);
   Wire.begin(PIN_SDA, PIN_SCL);
   oled.begin();
   oled.setContrast(255);
-  pinMode(BTN_SOS, INPUT_PULLUP);
   for (uint8_t p : {LED_R, LED_G, LED_B}) {
     const bool ok = ledcAttach(p, 5000, 8);
     Serial.printf("$D,ledc pin %u %s\n", p, ok ? "OK" : "FALLO");
   }
   ledRGB(0, 0, 0);
+  showLogo();
+  setupNet();
 }
 
 void loop() {
   readSerial();
-  static uint32_t lastDraw = 0;
   const uint32_t now = millis();
+  netLoop(now);
+  static uint32_t lastDraw = 0;
   if (now - lastDraw < 50) return;  // ~20 fps
   lastDraw = now;
 
@@ -240,8 +434,21 @@ void loop() {
   oled.clearBuffer();
   if (!dataOk) {
     oled.setFont(u8g2_font_6x10_tr);
-    oled.drawStr(14, 24, "MARS EVA NAV");
-    oled.drawStr(8, 42, st.everRx ? "SIN DATOS TABLET" : "ESPERANDO USB...");
+    if (netMode == NET_AP) {  // sin WiFi guardado: instrucciones para configurarlo
+      oled.drawStr(0, 10, "CONFIGURAR WIFI:");
+      oled.drawStr(0, 24, "conecta el celular a");
+      oled.drawStr(0, 36, apName);
+      oled.drawStr(0, 50, "y abre 192.168.4.1");
+      oled.setFont(u8g2_font_4x6_tr);
+      oled.drawStr(0, 62, "(o usa el cable USB)");
+    } else if (netMode == NET_STA) {
+      oled.drawStr(14, 14, "MARS EVA NAV");
+      oled.drawStr(0, 30, WiFi.status() == WL_CONNECTED ? ("WiFi " + WiFi.localIP().toString()).c_str() : "WiFi reconectando");
+      oled.drawStr(0, 46, st.everRx ? "SIN DATOS TABLET" : "ESPERANDO SERVIDOR");
+    } else {
+      oled.drawStr(14, 24, "MARS EVA NAV");
+      oled.drawStr(8, 42, st.everRx ? "SIN DATOS TABLET" : "ESPERANDO USB...");
+    }
   } else {
     drawCompass(31, 32, 30);
     drawInfo();
