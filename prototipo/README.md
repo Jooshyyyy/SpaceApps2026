@@ -61,3 +61,15 @@ Herramientas para revisar el cableado:
 
 Trama tablet → reloj: `$W,<rumbo|-1>,<az>,<dist_m>,<o2%>,<bat%>,<ttr_s>,<dosis_uSv_x10>,<flags>,<texto>\n`.
 Reloj → tablet: `$B,SOS` / `$B,CANCEL`. Por WiFi van en UDP 4210 (el reloj repite cada botón 3 veces; el servidor descarta los duplicados).
+
+## Publicar en Render (nube) + reloj por Bluetooth
+- `Dockerfile` (raíz del repo): compila `eva_engine` y `eva_bus` y arranca
+  `servidor.py --publico --sin-hardware`. Los visitantes (QR de los jueces) ven la EVA en vivo
+  sin controlar nada; el operador entra una vez con `https://<app>/op/<OPERADOR_TOKEN>`
+  (o `/op/<OPERADOR_TOKEN>/base` para la base) y queda guardado en una cookie.
+- Variables en Render: `OPERADOR_TOKEN` y `RELOJ_TOKEN` (secretos de ≥20 letras/números).
+- Las capas `data/processed/*.bin` (17 MB) se generan con los scripts del equipo
+  (`ingest.py` sobre el DEM de 5,4 GB, `fetch_mars_data.py`, `process_raw_data.py`) y están
+  en esta rama para que la nube no tenga que descargar el DEM.
+- El reloj sigue por Bluetooth con la laptop: `RELOJ_TOKEN=... python3 -I prototipo/puente_reloj.py --servidor https://<app>`
+  recibe las tramas de la nube y se las pasa al reloj; los botones del reloj vuelven a la nube.

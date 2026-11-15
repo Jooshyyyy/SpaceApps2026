@@ -15,6 +15,8 @@ Solo librería estándar.
 Uso:  python3 servidor.py [--backend ../SpaceApps2026] [--port 8791] [--tty /dev/ttyUSB0]
 """
 import argparse
+import hmac
+import secrets
 import base64
 import http.server
 import json
@@ -30,6 +32,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 MAX_LINE = 200
+WATCH_BT_NAME = "ARES-Watch"  # nombre Bluetooth del reloj (puerto serie RFCOMM, canal 1)
 WATCH_UDP_PORT = 4210  # el reloj se anuncia por broadcast ("$H,reloj") y recibe las tramas por WiFi
 CONTROL_TYPES = {"position", "set_goal", "storm", "radiation_peak", "comms_lost"}
 FLAG_NAMES = ["STORM", "RAD_PEAK", "O2_LOW", "BATT_LOW", "COMMS_LOST", "ROUTE_STALE", "EVA_ABORT"]
@@ -37,8 +40,13 @@ FLAG_NAMES = ["STORM", "RAD_PEAK", "O2_LOW", "BATT_LOW", "COMMS_LOST", "ROUTE_ST
 
 # ---------------------------------------------------------------- reloj USB
 class SerialPort:
-    def __init__(self, path: str):
+    def __init__(self, path: str, hardware: bool = True):
         self.path = path
+        self.hardware = hardware  # False en la nube: el reloj llega por el puente de la laptop
+        self.hub_cond = threading.Condition()  # tramas para el puente (puente_reloj.py)
+        self.hub_seq = 0
+        self.hub_frame = b""
+        self.hub_clients = 0
         self.fd = None
         self.lock = threading.Lock()
         self.sent = 0
@@ -48,23 +56,95 @@ class SerialPort:
         self.wifi_addr = None  # (ip, puerto) del reloj por WiFi, aprendido de su anuncio
         self.wifi_seen = 0.0
         self.last_btn = {}     # anti-duplicados: el reloj manda cada botón 3 veces por UDP
+        self.bt = None         # socket RFCOMM con el reloj
+        self.bt_mac = None
+        self.bt_error = ""
+        self.udp = None
+        if not hardware:
+            return
         self.udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.udp.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.udp.bind(("0.0.0.0", WATCH_UDP_PORT))
         threading.Thread(target=self._reader, daemon=True).start()
         threading.Thread(target=self._udp_reader, daemon=True).start()
+        if hasattr(socket, "AF_BLUETOOTH"):
+            threading.Thread(target=self._bt_loop, daemon=True).start()
+
+    @staticmethod
+    def _bt_find() -> str | None:
+        """MAC del reloj entre los dispositivos que BlueZ ya conoce (emparejado o visto en un escaneo)."""
+        try:
+            out = subprocess.run(["bluetoothctl", "devices"], capture_output=True, text=True, timeout=5).stdout
+        except (OSError, subprocess.SubprocessError):
+            return None
+        for ln in out.splitlines():
+            parts = ln.split(" ", 2)
+            if len(parts) == 3 and parts[0] == "Device" and parts[2].strip() == WATCH_BT_NAME:
+                return parts[1]
+        return None
+
+    def _bt_loop(self):
+        """Reloj por Bluetooth: conecta al puerto serie del ESP32 y lee sus botones; reintenta si se corta."""
+        while True:
+            mac = self._bt_find() or self.bt_mac  # BlueZ olvida los equipos no emparejados: se recuerda el último
+            if not mac:
+                self.bt_error = "buscando el reloj por Bluetooth"
+                try:  # escaneo corto para que BlueZ lo vuelva a ver
+                    subprocess.run(["bluetoothctl", "--timeout", "8", "scan", "on"],
+                                   capture_output=True, timeout=15)
+                except (OSError, subprocess.SubprocessError):
+                    time.sleep(5)
+                continue
+            self.bt_mac = mac
+            sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
+            try:
+                sock.settimeout(10)
+                sock.connect((mac, 1))
+                sock.settimeout(3)  # el reloj no manda nada salvo botones: el timeout solo sirve para revisar si el enlace sigue vivo
+            except OSError as exc:
+                self.bt_error = str(exc)
+                sock.close()
+                if not self._bt_find():
+                    self.bt_mac = None  # quizá cambió de reloj: volver a buscar por nombre
+                time.sleep(5)
+                continue
+            with self.lock:
+                self.bt, self.bt_error = sock, ""
+            buf = b""
+            try:
+                while self.bt is sock:
+                    try:
+                        chunk = sock.recv(512)
+                    except socket.timeout:
+                        continue
+                    if not chunk:
+                        break
+                    buf += chunk
+                    while b"\n" in buf:
+                        line, buf = buf.split(b"\n", 1)
+                        line = line.strip()
+                        if line.startswith(b"$B,") and line[3:].isalnum() and len(line) < 24:
+                            self._button(line[3:].decode(), "bt")
+                    buf = buf[-MAX_LINE:]
+            except OSError as exc:
+                self.bt_error = str(exc)
+            with self.lock:
+                if self.bt is sock:
+                    self.bt = None
+            sock.close()
+            time.sleep(2)
 
     def _button(self, name: str, via: str):
         with self.lock:
             now = time.time()
-            if via == "wifi" and now - self.last_btn.get(name, 0) < 1.0:
+            if now - self.last_btn.get(name, 0) < 1.0:  # el mismo botón llega por varias vías / repetido por UDP
                 return
             self.last_btn[name] = now
             self.seq += 1
             self.buttons = (self.buttons + [{"seq": self.seq, "t": now, "button": name, "via": via}])[-20:]
 
     def wifi_ok(self) -> bool:
-        return self.wifi_addr is not None and time.time() - self.wifi_seen < 6
+        return self.udp is not None and self.wifi_addr is not None and time.time() - self.wifi_seen < 6
 
     def _udp_reader(self):
         """Reloj por WiFi: anuncios "$H,reloj" y botones "$B,SOS" del mismo equipo."""
@@ -136,12 +216,37 @@ class SerialPort:
     def write(self, data: bytes) -> bool:
         """Manda la trama por WiFi (si el reloj se anunció) y por USB (si está conectado)."""
         ok = False
+        with self.hub_cond:  # el puente de la laptop (si está conectado) la reenvía al reloj
+            self.hub_seq += 1
+            self.hub_frame = data
+            self.hub_cond.notify_all()
+            ok = self.hub_clients > 0
+        bt = self.bt
+        if bt is not None:
+            try:
+                bt.sendall(data)
+                ok = True
+            except OSError as exc:  # enlace muerto (p. ej. el reloj se reinició): se descarta y el hilo reconecta
+                self.bt_error = str(exc)
+                with self.lock:
+                    if self.bt is bt:
+                        self.bt = None
+                for fn in (lambda: bt.shutdown(socket.SHUT_RDWR), bt.close):
+                    try:
+                        fn()
+                    except OSError:
+                        pass
         if self.wifi_ok():
             try:
                 self.udp.sendto(data, self.wifi_addr)
                 ok = True
             except OSError:
                 pass
+        if not self.hardware:
+            with self.lock:
+                if ok:
+                    self.sent += 1
+            return ok
         with self.lock:
             try:
                 if self.fd is None:
@@ -161,7 +266,9 @@ class SerialPort:
 
     def status(self) -> dict:
         wifi = self.wifi_ok()
-        return {"tty": self.path, "open": self.fd is not None or wifi, "usb": self.fd is not None,
+        bt = self.bt_mac if self.bt is not None else None
+        return {"tty": self.path, "open": self.fd is not None or wifi or bt is not None or self.hub_clients > 0, "usb": self.fd is not None,
+                "bt": bt, "bt_error": self.bt_error if bt is None else "", "puente": self.hub_clients > 0,
                 "wifi": self.wifi_addr[0] if wifi else None, "sent": self.sent, "error": self.error}
 
 
@@ -423,8 +530,56 @@ class Shared:
 SHARED = Shared()
 
 
-def make_handler(serial: SerialPort, bus: BusClient, data_dir: Path, busproc: "BusProcess", planner: Planner):
+STATIC = {"/app.html", "/mission.json", "/logo_ares.png", "/oled_logo.png"}  # lo único que se sirve de esta carpeta
+TOKEN_FILE = HERE / ".token_operador"  # no se sirven ni se suben a git
+WATCH_TOKEN_FILE = HERE / ".token_reloj"
+OP_COOKIE = "ares_op"
+PUBLICO = False  # --publico: todo el que llega es de internet (servidor en la nube)
+
+
+def load_token(env: str, path: Path) -> str:
+    """Token secreto: variable de entorno (nube) o archivo local que se crea una vez (solo lectura del usuario)."""
+    tok = os.environ.get(env, "").strip()
+    if tok:
+        if len(tok) < 20 or not tok.isalnum():
+            raise SystemExit(f"{env} debe tener al menos 20 letras/números")
+        return tok
+    try:
+        tok = path.read_text().strip()
+        if len(tok) >= 20 and tok.isalnum():
+            return tok
+    except OSError:
+        pass
+    tok = secrets.token_hex(16)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(tok + "\n")
+    return tok
+
+
+class RateLimit:
+    """Límite simple por visitante (IP real que informa Cloudflare): ~20 peticiones/s con ráfagas de 80."""
+    def __init__(self, rate=20.0, burst=80.0):
+        self.rate, self.burst, self.b, self.lock = rate, burst, {}, threading.Lock()
+
+    def ok(self, key: str) -> bool:
+        now = time.monotonic()
+        with self.lock:
+            tokens, t = self.b.get(key, (self.burst, now))
+            tokens = min(self.burst, tokens + (now - t) * self.rate)
+            if len(self.b) > 5000:
+                self.b.clear()
+            if tokens < 1:
+                self.b[key] = (tokens, now)
+                return False
+            self.b[key] = (tokens - 1, now)
+            return True
+
+
+def make_handler(serial: SerialPort, bus: BusClient, data_dir: Path, busproc: "BusProcess", planner: Planner,
+                 token: str, watch_token: str):
     data_files = {"/elevation.bin", "/slope.bin"}
+    limiter = RateLimit()
     owner = {"id": None}  # solo la última pantalla del astronauta que abrió la página le escribe al reloj
 
     def cell(text):
@@ -436,6 +591,68 @@ def make_handler(serial: SerialPort, bus: BusClient, data_dir: Path, busproc: "B
     class Handler(http.server.SimpleHTTPRequestHandler):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, directory=str(HERE), **kwargs)
+
+        def _remote(self) -> bool:
+            """Viene de internet (túnel de Cloudflare o servidor en la nube) y no de esta misma laptop."""
+            return (PUBLICO or self.client_address[0] not in ("127.0.0.1", "::1")
+                    or "Cf-Connecting-Ip" in self.headers or "Cf-Ray" in self.headers)
+
+        def _operator(self) -> bool:
+            if not self._remote():
+                return True  # la laptop y la tablet por USB (adb reverse) operan sin token
+            for part in (self.headers.get("Cookie") or "").split(";"):
+                k, _, v = part.strip().partition("=")
+                if k == OP_COOKIE and hmac.compare_digest(v.encode(), token.encode()):
+                    return True
+            return False
+
+        def _limited(self) -> bool:
+            key = self.headers.get("Cf-Connecting-Ip") or ""
+            if not key and PUBLICO:  # detrás del proxy de la plataforma: la IP real va en X-Forwarded-For
+                key = (self.headers.get("X-Forwarded-For") or "").split(",")[0].strip()
+            key = key or self.client_address[0]
+            if limiter.ok(key):
+                return False
+            self._reply(429, {"error": "demasiadas peticiones"})
+            return True
+
+        def _watch_ok(self) -> bool:
+            return hmac.compare_digest((self.headers.get("X-Reloj-Token") or "").encode(), watch_token.encode())
+
+        def _stream(self):
+            """Puente de la laptop: recibe cada trama del reloj en cuanto la manda la tablet (una por línea)."""
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=ascii")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Accel-Buffering", "no")
+            self.end_headers()
+            self.close_connection = True
+            hub = serial.hub_cond
+            with hub:
+                serial.hub_clients += 1
+                seen = serial.hub_seq
+            try:
+                while True:
+                    with hub:
+                        hub.wait_for(lambda: serial.hub_seq != seen, timeout=2)
+                        fresh = serial.hub_seq != seen
+                        seen, frame = serial.hub_seq, serial.hub_frame
+                    self.wfile.write(frame if fresh else b"$P\n")  # $P = sigo vivo (el reloj lo ignora)
+                    self.wfile.flush()
+            except OSError:
+                pass
+            finally:
+                with hub:
+                    serial.hub_clients -= 1
+
+        def _deny(self):
+            return self._reply(403, {"error": "modo visitante: solo lectura"})
+
+        def _public_status(self, st: dict) -> dict:
+            if self._operator():
+                return st
+            return {"open": st["open"], "usb": st["usb"], "bt": bool(st.get("bt")), "wifi": bool(st.get("wifi")),
+                    "puente": bool(st.get("puente"))}
 
         def _reply(self, code: int, body: dict):
             data = json.dumps(body).encode()
@@ -452,7 +669,25 @@ def make_handler(serial: SerialPort, bus: BusClient, data_dir: Path, busproc: "B
             super().end_headers()
 
         def do_GET(self):
+            if self._limited():
+                return
             path, _, query = self.path.partition("?")
+            if path.startswith("/op/"):  # link del operador: guarda el token en una cookie y entra
+                tok, _, dest = path[4:].partition("/")
+                if not hmac.compare_digest(tok.encode(), token.encode()):
+                    return self._reply(403, {"error": "token inválido"})
+                self.send_response(302)
+                secure = "; Secure" if self._remote() else ""
+                self.send_header("Set-Cookie", f"{OP_COOKIE}={token}; Path=/; Max-Age=2592000; HttpOnly; SameSite=Strict{secure}")
+                self.send_header("Location", "/app.html?rol=base" if dest == "base" else "/app.html")
+                self.end_headers()
+                return
+            if path == "/reloj/stream":
+                if not self._watch_ok():
+                    return self._reply(403, {"error": "token del reloj inválido"})
+                return self._stream()
+            if path == "/yo":
+                return self._reply(200, {"operador": self._operator()})
             if path == "/":  # la tablet entra directo al prototipo
                 self.send_response(302)
                 self.send_header("Location", "/app.html")
@@ -469,12 +704,14 @@ def make_handler(serial: SerialPort, bus: BusClient, data_dir: Path, busproc: "B
                 since = query[6:] if query.startswith("since=") else "0"
                 return self._reply(200, SHARED.since(int(since) if since.isdigit() else 0))
             if path == "/estado":
-                return self._reply(200, serial.status())
+                return self._reply(200, self._public_status(serial.status()))
             if path == "/reloj":  # botones del reloj: ?since=N
                 since = query[6:] if query.startswith("since=") else "0"
                 return self._reply(200, {"events": serial.events_since(int(since) if since.isdigit() else 0),
-                                         **serial.status()})
+                                         **self._public_status(serial.status())})
             if path == "/plan":  # ?goal=r,c[&start=r,c]
+                if not self._operator():
+                    return self._deny()
                 try:
                     q = dict(kv.split("=", 1) for kv in query.split("&") if "=" in kv)
                     goal, start = cell(q["goal"]), cell(q.get("start", "500,500"))
@@ -495,13 +732,30 @@ def make_handler(serial: SerialPort, bus: BusClient, data_dir: Path, busproc: "B
                 self.end_headers()
                 self.wfile.write(body)
                 return
+            if path not in STATIC:  # no se exponen el código ni otros archivos de la carpeta
+                return self._reply(404, {"error": "not found"})
             return super().do_GET()
 
         def _body(self, limit):
             length = int(self.headers.get("Content-Length", "0"))
             return self.rfile.read(length) if 0 < length <= limit else None
 
+        def do_HEAD(self):  # sin HEAD: evitaría la lista de archivos permitidos
+            self._reply(405, {"error": "método no permitido"})
+
         def do_POST(self):
+            if self._limited():
+                return
+            if self.path == "/reloj/boton":  # botón del reloj que reenvía el puente de la laptop
+                if not self._watch_ok():
+                    return self._reply(403, {"error": "token del reloj inválido"})
+                line = (self._body(32) or b"").strip()
+                if not (line.startswith(b"$B,") and line[3:].isalnum() and len(line) < 24):
+                    return self._reply(400, {"error": "botón inválido"})
+                serial._button(line[3:].decode(), "puente")
+                return self._reply(200, {"ok": True})
+            if not self._operator():
+                return self._deny()
             if self.path == "/reloj/tomar":
                 sid = (self._body(64) or b"").decode(errors="ignore")
                 if not (sid and sid.isalnum()):
@@ -509,7 +763,10 @@ def make_handler(serial: SerialPort, bus: BusClient, data_dir: Path, busproc: "B
                 owner["id"] = sid
                 return self._reply(200, {"ok": True})
             if self.path == "/w":
-                if self.headers.get("X-Sesion") != owner["id"]:  # pestañas viejas: no mezclan sus datos
+                sid = self.headers.get("X-Sesion") or ""
+                if owner["id"] is None and sid.isalnum():  # servidor reiniciado: la primera pantalla que escribe lo retoma
+                    owner["id"] = sid
+                if sid != owner["id"]:  # pestañas viejas: no mezclan sus datos
                     return self._reply(409, {"error": "otra pantalla controla el reloj"})
                 line = self._body(MAX_LINE)
                 # Solo tramas del reloj: "$W,...\n" en ASCII imprimible.
@@ -575,10 +832,15 @@ def main():
     # Dentro del repo del equipo el backend es la carpeta de arriba; en una copia suelta, ../SpaceApps2026.
     default_backend = HERE.parent if (HERE.parent / "core_engine").is_dir() else HERE.parent / "SpaceApps2026"
     ap.add_argument("--backend", type=Path, default=default_backend)
-    ap.add_argument("--port", type=int, default=8791)
+    ap.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8791")))
+    ap.add_argument("--host", default="127.0.0.1", help="0.0.0.0 en la nube")
+    ap.add_argument("--publico", action="store_true", help="servidor en internet: todos son visitantes salvo el operador con token")
+    ap.add_argument("--sin-hardware", action="store_true", help="sin USB/Bluetooth/WiFi local: el reloj llega por puente_reloj.py")
     ap.add_argument("--bus-port", type=int, default=8765)
     ap.add_argument("--tty", default="auto", help="puerto del reloj; auto = primer /dev/ttyUSB*")
     args = ap.parse_args()
+    global PUBLICO
+    PUBLICO = args.publico
     backend = args.backend.resolve()
     mission = json.loads((HERE / "mission.json").read_text())
     first = mission["stops"][0]
@@ -587,11 +849,15 @@ def main():
     if args.tty == "auto":  # al reconectar el cable el ESP32 puede pasar de ttyUSB0 a ttyUSB1
         ports = sorted(Path("/dev").glob("ttyUSB*"))
         args.tty = str(ports[0]) if ports else "/dev/ttyUSB0"
-    serial = SerialPort(args.tty)
+    serial = SerialPort(args.tty, hardware=not args.sin_hardware)
+    token = load_token("OPERADOR_TOKEN", TOKEN_FILE)
+    watch_token = load_token("RELOJ_TOKEN", WATCH_TOKEN_FILE)
     server = http.server.ThreadingHTTPServer(
-        ("127.0.0.1", args.port), make_handler(serial, bus, backend / "data" / "processed", busproc, Planner(backend)))
-    print(f"Prototipo: http://127.0.0.1:{args.port}/app.html · bus ws://127.0.0.1:{args.bus_port} "
-          f"· reloj {args.tty}", flush=True)
+        (args.host, args.port),
+        make_handler(serial, bus, backend / "data" / "processed", busproc, Planner(backend), token, watch_token))
+    server.daemon_threads = True
+    print(f"Prototipo: http://{args.host}:{args.port}/app.html{' (público)' if PUBLICO else ''} · bus ws://127.0.0.1:{args.bus_port} "
+          f"· reloj {args.tty}\nOperador por internet: <url pública>/op/<token>  (token en {TOKEN_FILE.name})", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

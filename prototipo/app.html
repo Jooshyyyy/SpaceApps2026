@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ARES · Mars Navigation Map</title>
 <link rel="icon" href="logo_ares.png">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
@@ -64,7 +64,10 @@ body{margin:0;color:var(--txt);text-shadow:0 1px 2px rgba(0,0,0,.35);font:14px/1
 .simbox{position:fixed;z-index:2000;top:66px;right:18px;width:290px;padding:14px;border-radius:22px;background:linear-gradient(145deg,rgba(44,48,60,.96),rgba(14,16,22,.96))}
 .simbox h3{margin:0 0 8px;font-size:12px;font-weight:650;letter-spacing:.09em;color:var(--mut);text-transform:uppercase}
 .foot{color:var(--mut);font-size:11px;text-align:center;padding:0 16px 14px}
-.obs .cap[data-v],.obs #usb,.obs #simbtn{display:none}
+.obs:not(.vis) .cap[data-v],.obs #usb,.obs #simbtn{display:none}
+.vispill{display:none}.vis .vispill{display:inline-flex}
+.vis #sosack,.vis #soscancel,.vis #bret,.vis #bstorm,.vis #brad{display:none}
+.vis #stops,.vis #tsos,.vis #go{pointer-events:none}.vis #stops{opacity:.6}
 .prof canvas{width:100%;height:100%;display:block;position:relative}
 .pov{height:110px;border-radius:14px;overflow:hidden;position:relative;background:#000;z-index:0;isolation:isolate}
 .sosbtn{position:absolute;z-index:850;left:14px;bottom:196px;width:84px;height:84px;border-radius:50%;border:none;cursor:pointer;padding:5px;
@@ -119,87 +122,90 @@ body{margin:0;color:var(--txt);text-shadow:0 1px 2px rgba(0,0,0,.35);font:14px/1
 </head><body>
 <div class="splash" id="splash" role="img" aria-label="ARES · Mars Navigation Map"><img src="logo_ares.png" alt="ARES · Mars Navigation Map"></div>
 <script>(()=>{const sp=document.getElementById('splash'),hide=()=>sp.classList.add('out');setTimeout(hide,2600);sp.addEventListener('pointerdown',hide)})();</script>
-<div class="top glass"><h1>ARES</h1>
- <button data-v="both" class="cap on">Tablet + Reloj</button><button data-v="tablet" class="cap">Tablet</button><button data-v="watch" class="cap">Reloj</button><button data-v="base" class="cap">🛰 Base de control</button>
+<div class="top glass"><h1>ARES</h1><span class="pill vispill" title="You are watching the live EVA. Only the operator can control it.">👁 Visitor · live</span>
+ <button data-v="both" class="cap on">Tablet + Watch</button><button data-v="tablet" class="cap">Tablet</button><button data-v="watch" class="cap">Watch</button><button data-v="base" class="cap">🛰 Mission Control</button>
  <span class="sp"></span>
- <button class="cap on" id="snd" title="Sonidos de advertencia">🔊 Sonido</button><button class="cap" id="simbtn">⚙ Simulación</button><button class="cap" id="fs">⛶ Pantalla completa</button><button class="cap usb" id="usb">⚡ Conectar reloj USB</button></div>
-<div class="simbox glass" id="simbox" style="display:none"><h3>Simulación · solo para la demo</h3>
- <div class="btns" id="sndtest"><button data-s="sos">SOS</button><button data-s="storm">Tormenta</button><button data-s="rad">Radiación</button><button data-s="o2">O₂</button><button data-s="bat">Batería</button><button data-s="comms">Enlace</button><button data-s="evac">Evacuar</button><button data-s="ok">OK</button></div>
- <div class="mut" style="margin:6px 0 12px">Probar cada sonido de advertencia</div>
- <div class="btns"><button id="spd">Velocidad ×30</button></div>
- <h3 style="margin-top:12px">Provocar contingencia</h3>
- <div class="btns"><button class="em" id="storm">Tormenta</button><button class="em" id="rad">Radiación</button></div>
- <div class="btns" style="margin-top:6px"><button class="em" id="comms">Corte de enlace</button><button class="em" id="bsos">Simular SOS</button></div></div>
+ <button class="cap on" id="snd" title="Warning sounds">🔊 Sound</button><button class="cap" id="simbtn">⚙ Simulation</button><button class="cap" id="fs">⛶ Fullscreen</button><button class="cap usb" id="usb">⚡ Connect USB watch</button></div>
+<div class="simbox glass" id="simbox" style="display:none"><h3>Simulation · demo only</h3>
+ <div class="btns" id="sndtest"><button data-s="sos">SOS</button><button data-s="storm">Storm</button><button data-s="rad">Radiation</button><button data-s="o2">O₂</button><button data-s="bat">Battery</button><button data-s="comms">Comms</button><button data-s="evac">Evacuate</button><button data-s="ok">OK</button></div>
+ <div class="mut" style="margin:6px 0 12px">Test each warning sound</div>
+ <div class="btns"><button id="spd">Speed ×30</button></div>
+ <h3 style="margin-top:12px">Trigger contingency</h3>
+ <div class="btns"><button class="em" id="storm">Storm</button><button class="em" id="rad">Radiation</button></div>
+ <div class="btns" style="margin-top:6px"><button class="em" id="comms">Comms loss</button><button class="em" id="bsos">Simulate SOS</button></div></div>
 <div class="stage">
  <div class="tablet" id="tablet">
   <div id="map"></div><div id="v3d"></div>
-  <div class="hdr glass"><b>EVA-01</b><span id="met">MET 00:00:00</span><span class="pill ok" id="link">ENLACE HÁBITAT OK</span><span class="pill" id="be">MOTOR</span><span class="sp"></span><span id="alerts"></span><span class="pill" id="state">EN REFUGIO</span></div>
+  <div class="hdr glass"><b>EVA-01</b><span id="met">MET 00:00:00</span><span class="pill ok" id="link">HABITAT LINK OK</span><span class="pill" id="be">ENGINE</span><span class="sp"></span><span id="alerts"></span><span class="pill" id="state">AT HABITAT</span></div>
   <div class="vt glass"><button class="cap vcap on" data-m="2d">2D</button><button class="cap vcap" data-m="3d">3D</button></div>
-  <div class="hint3d glass" id="hint3d">Arrastrar: rotar · Clic derecho: mover · Rueda: zoom · Elevación real 1:1</div>
+  <div class="hint3d glass" id="hint3d">Drag: rotate · Right-click: pan · Wheel: zoom · True elevation 1:1</div>
   <div class="compass"><svg viewBox="0 0 124 124" id="csvg"></svg></div>
-  <button class="sosbtn" id="tsos" title="Mantener 1,5 s para pedir ayuda · con el SOS activo, mantener para cancelar"><span id="tsostxt">SOS<small>MANTENER</small></span></button>
-  <div class="legend glass" id="legend">Pendiente<i style="background:#ffd60a"></i>10–20°<i style="background:repeating-linear-gradient(45deg,#ff453a 0 3px,#7a1a14 3px 6px)"></i>&gt;20° prohibido<i style="background:#ff9f0a;border-radius:50%"></i>Curiosity 2025</div>
+  <button class="sosbtn" id="tsos" title="Hold 1.5 s to call for help · with SOS active, hold to cancel"><span id="tsostxt">SOS<small>HOLD</small></span></button>
+  <div class="legend glass" id="legend">Slope<i style="background:#ffd60a"></i>10–20°<i style="background:repeating-linear-gradient(45deg,#ff453a 0 3px,#7a1a14 3px 6px)"></i>&gt;20° no-go<i style="background:#ff9f0a;border-radius:50%"></i>Curiosity 2025</div>
   <div class="prof glass"><canvas id="prof"></canvas></div>
   <div class="side glass">
-   <div class="card"><h3>Soporte vital</h3>
+   <div class="card"><h3>Life support</h3>
     <div class="grid2">
      <div class="kv"><span>O₂</span><b id="o2">100%</b><div class="bar"><i id="o2b" style="width:100%"></i></div></div>
-     <div class="kv"><span>Batería</span><b id="bat">100%</b><div class="bar"><i id="batb" style="width:100%"></i></div></div>
-     <div class="kv"><span>Dosis EVA</span><b id="dose">0.0 µSv</b></div>
-     <div class="kv"><span>Tiempo de retorno</span><b id="ttr">0:00</b></div>
+     <div class="kv"><span>Battery</span><b id="bat">100%</b><div class="bar"><i id="batb" style="width:100%"></i></div></div>
+     <div class="kv"><span>EVA dose</span><b id="dose">0.0 µSv</b></div>
+     <div class="kv"><span>Return time</span><b id="ttr">0:00</b></div>
     </div></div>
-   <div class="card"><h3>Objetivo científico</h3>
-    <div class="mut" style="margin-bottom:6px">Toca el mapa o un punto naranja de Curiosity para elegir otra parada, también durante la EVA</div>
+   <div class="card"><h3>Science target</h3>
+    <div class="mut" style="margin-bottom:6px">Tap the map or an orange Curiosity point to choose another stop, even during the EVA</div>
     <div class="stops" id="stops"></div><div class="plan" id="planinfo"></div></div>
-   <div class="card"><h3>Vista del objetivo</h3><div class="pov" id="pov"></div>
+   <div class="card"><h3>Target view</h3><div class="pov" id="pov"></div>
     <div class="mut" style="margin-top:6px" id="povtxt"></div></div>
-   <div class="gocard btns"><button class="go" id="go">▶ Iniciar EVA</button></div>
+   <div class="gocard btns"><button class="go" id="go">▶ Start EVA</button></div>
   </div>
  </div>
  <div class="base glass" id="base" style="display:none">
-  <div class="bhdr"><h2>🛰 Base de control · Hábitat Gale</h2><span class="pill" id="bmet">MET 00:00:00</span><span class="pill" id="bbe">MOTOR</span><span class="pill" id="blive">EN VIVO</span>
+  <div class="bhdr"><h2>🛰 Mission Control · Gale Habitat</h2><span class="pill" id="bmet">MET 00:00:00</span><span class="pill" id="bbe">ENGINE</span><span class="pill" id="blive">LIVE</span>
    <span class="sp"></span><span id="balerts"></span></div>
-  <div class="sosban" id="sosban">🆘 <span id="sostxt">SOS DEL ASTRONAUTA</span><span class="sp"></span>
-   <button id="sosack">Confirmar recepción</button><button id="soscancel">Cerrar emergencia</button></div>
+  <div class="sosban" id="sosban">🆘 <span id="sostxt">ASTRONAUT SOS</span><span class="sp"></span>
+   <button id="sosack">Confirm receipt</button><button id="soscancel">Close emergency</button></div>
   <div class="bgrid">
    <div class="bcol">
-    <div class="card"><h3>Astronauta EVA-01</h3>
+    <div class="card"><h3>Astronaut EVA-01</h3>
      <div class="grid2">
-      <div class="kv"><span>Estado</span><b id="bstate" style="font-size:16px">EN REFUGIO</b></div>
-      <div class="kv"><span>Destino</span><b id="bdest" style="font-size:16px">—</b></div>
-      <div class="kv"><span>Distancia al refugio</span><b id="bdist">0 m</b></div>
-      <div class="kv"><span>Tiempo de retorno</span><b id="bttr">0:00</b></div>
+      <div class="kv"><span>Status</span><b id="bstate" style="font-size:16px">AT HABITAT</b></div>
+      <div class="kv"><span>Destination</span><b id="bdest" style="font-size:16px">—</b></div>
+      <div class="kv"><span>Distance to habitat</span><b id="bdist">0 m</b></div>
+      <div class="kv"><span>Return time</span><b id="bttr">0:00</b></div>
       <div class="kv"><span>O₂</span><b id="bo2">100%</b><div class="bar"><i id="bo2b" style="width:100%"></i></div></div>
-      <div class="kv"><span>Batería</span><b id="bbat">100%</b><div class="bar"><i id="bbatb" style="width:100%"></i></div></div>
-      <div class="kv"><span>Dosis EVA</span><b id="bdose">0.0 µSv</b></div>
-      <div class="kv"><span>Reloj</span><b id="bwatch" style="font-size:14px">—</b></div>
+      <div class="kv"><span>Battery</span><b id="bbat">100%</b><div class="bar"><i id="bbatb" style="width:100%"></i></div></div>
+      <div class="kv"><span>EVA dose</span><b id="bdose">0.0 µSv</b></div>
+      <div class="kv"><span>Watch</span><b id="bwatch" style="font-size:14px">—</b></div>
      </div></div>
-    <div class="card"><h3>Órdenes de la base</h3>
-     <div class="btns"><button id="bret">⌂ Ordenar regreso</button></div>
-     <div class="btns" style="margin-top:6px"><button class="em" id="bstorm">Alerta tormenta</button><button class="em" id="brad">Alerta radiación</button></div>
-     <div class="mut" style="margin-top:8px">El SOS llega del botón del reloj o de la tablet del astronauta. Al recibirlo se ordena el regreso al refugio.</div></div>
+    <div class="card"><h3>Control orders</h3>
+     <div class="btns"><button id="bret">⌂ Order return</button></div>
+     <div class="btns" style="margin-top:6px"><button class="em" id="bstorm">Storm alert</button><button class="em" id="brad">Radiation alert</button></div>
+     <div class="mut" style="margin-top:8px">The SOS comes from the watch button or the astronaut tablet. When it arrives, a return to the habitat is ordered.</div></div>
    </div>
    <div class="bcol">
-    <div class="card"><h3>Posición del astronauta</h3><div id="bmap"></div></div>
-    <div class="card"><h3>Bitácora de la misión</h3><div class="blog" id="blog"></div></div>
+    <div class="card"><h3>Astronaut position</h3><div id="bmap"></div></div>
+    <div class="card"><h3>Mission log</h3><div class="blog" id="blog"></div></div>
    </div>
   </div>
  </div>
  <div class="watchwrap" id="watchwrap">
-  <div class="oledwrap glass"><div class="mut">Reloj real · ESP32 + OLED 1,3″ 128×64</div><canvas id="oled" width="128" height="64" title="Toca para ver el arranque"></canvas>
-   <div class="mut" id="usbinfo">Lo mismo que muestra el reloj físico</div></div>
+  <div class="oledwrap glass"><div class="mut">Real watch · ESP32 + 1.3″ OLED 128×64</div><canvas id="oled" width="128" height="64" title="Tap to replay the boot animation"></canvas>
+   <div class="mut" id="usbinfo">Same as the physical watch shows</div></div>
   <div class="wglass glass" id="wglass"><div class="watch"><svg viewBox="0 0 324 324" id="wsvg"></svg></div></div>
-  <div class="wnote glass">Arriba: la pantalla del reloj real. Abajo: concepto a futuro de un reloj redondo a color.</div>
+  <div class="wnote glass">Top: the real watch screen. Bottom: future concept of a round color watch.</div>
  </div>
 </div>
-<div class="foot">Motor de rutas y bus de eventos del equipo (eva_engine · eva_bus) · zona curiosity-2025-eva-site · mapas JPL Mars Trek / HiRISE · Tierra: retraso ~12 min, navegación 100% local</div>
+<div class="foot">Team route engine and event bus (eva_engine · eva_bus) · area curiosity-2025-eva-site · JPL Mars Trek / HiRISE maps · Earth: ~12 min delay, 100% local navigation</div>
 <script>
 (async()=>{
 const M=await (await fetch('mission.json')).json();
 const SL=new Float32Array(await (await fetch('slope.bin')).arrayBuffer());
 const bb=M.aoi.bbox,P=M.plss,$=id=>document.getElementById(id);
-const OBS=new URLSearchParams(location.search).get('rol')==='base'; // pantalla de la base: solo observa y manda órdenes
-if(OBS)document.body.classList.add('obs');
+let ME={operador:true};try{ME=await (await fetch('/yo')).json()}catch(e){}
+const VIS=!ME.operador; // visitante (QR público): ve la EVA en vivo en todas las vistas, sin controlar nada
+const ROLB=new URLSearchParams(location.search).get('rol')==='base';
+const OBS=VIS||ROLB; // pantalla que solo observa (la base manda órdenes; el visitante, ni eso)
+if(OBS)document.body.classList.add('obs');if(VIS)document.body.classList.add('vis');
 // ---------- mapa 2D ----------
 const T='https://trek.nasa.gov/tiles/Mars/EQ/',Q='/1.0.0/default/default028mm/{z}/{y}/{x}.png';
 const map=L.map('map',{crs:L.CRS.EPSG4326,attributionControl:false,maxZoom:19});
@@ -212,14 +218,14 @@ L.rectangle(B,{color:'#64d2ff',weight:1,fill:false,dashArray:'4 4'}).addTo(map);
 const curio=L.layerGroup([L.polyline(M.traverse.map(q=>[q[0],q[1]]),{color:'#ff9f0a',weight:2.5,opacity:.9,dashArray:'2 6',interactive:false})]).addTo(map);
 M.traverse.forEach(q=>L.circleMarker([q[0],q[1]],{radius:3,color:'#3a2200',weight:.5,opacity:.7,fillColor:'#ff9f0a',fillOpacity:.6,bubblingMouseEvents:false})
   .bindTooltip('Curiosity · sol '+q[2]).on('click',()=>{const [r,c]=LL2RC(q);pickPoint(r,c,'Curiosity sol '+q[2],q[2])}).addTo(curio));
-L.control.layers(null,{'Pendiente del terreno':slopeLayer,'Recorrido Curiosity 2025':curio},{collapsed:true}).addTo(map);
+L.control.layers(null,{'Terrain slope':slopeLayer,'Curiosity 2025 traverse':curio},{collapsed:true}).addTo(map);
 const ref=M.aoi.refuge.ll;
-L.marker(ref,{icon:L.divIcon({className:'',html:'<div style="background:#64d2ff;color:#000;font-weight:700;border-radius:6px;padding:2px 6px;font-size:11px;white-space:nowrap">⌂ Refugio</div>'})}).addTo(map);
+L.marker(ref,{icon:L.divIcon({className:'',html:'<div style="background:#64d2ff;color:#000;font-weight:700;border-radius:6px;padding:2px 6px;font-size:11px;white-space:nowrap">⌂ Habitat</div>'})}).addTo(map);
 const routeLayer=L.layerGroup().addTo(map),trail=L.polyline([],{color:'#fff',weight:3,dashArray:'2 5'}).addTo(map);
 const astro=L.circleMarker(ref,{radius:7,color:'#000',weight:2,fillColor:'#64d2ff',fillOpacity:1}).addTo(map);
 const LL2RC=q=>[Math.floor((bb.north-q[0])/(bb.north-bb.south)*1000),Math.floor((q[1]-bb.west)/(bb.east-bb.west)*1000)];
 const pickMark=L.marker(ref,{opacity:0,interactive:false,icon:L.divIcon({className:'',html:'<div style="background:#bf5af2;color:#fff;font-weight:800;border-radius:50%;width:24px;height:24px;display:grid;place-items:center;box-shadow:0 0 0 2px #fff">★</div>',iconSize:[24,24],iconAnchor:[12,12]})}).addTo(map);
-map.on('click',e=>{const q=[e.latlng.lat,e.latlng.lng];if(q[0]<bb.south||q[0]>bb.north||q[1]<bb.west||q[1]>bb.east)return;const [r,c]=LL2RC(q);pickPoint(r,c,'Punto elegido')});
+map.on('click',e=>{const q=[e.latlng.lat,e.latlng.lng];if(q[0]<bb.south||q[0]>bb.north||q[1]<bb.west||q[1]>bb.east)return;const [r,c]=LL2RC(q);pickPoint(r,c,'Chosen point')});
 M.stops.forEach(s=>L.marker(s.ll,{icon:L.divIcon({className:'',html:`<div style="background:#ffd60a;color:#000;font-weight:700;border-radius:50%;width:22px;height:22px;display:grid;place-items:center">${s.id}</div>`,iconSize:[22,22],iconAnchor:[11,11]})}).addTo(map).on('click',()=>select(s.id)));
 const pov=L.map('pov',{crs:L.CRS.EPSG4326,zoomControl:false,attributionControl:false,dragging:false,scrollWheelZoom:false}).setView(M.stops[0].ll,16);
 L.tileLayer(T+'curiosity_hirise_mosaic'+Q,{maxNativeZoom:16,maxZoom:19}).addTo(pov);
@@ -240,22 +246,22 @@ let o2=P.o2_capacity_kg,bat=P.batt_capacity_wh,dose=0;
 const cmd=o=>fetch('/bus/cmd',{method:'POST',body:JSON.stringify(o)}).catch(()=>{});
 let custom=null; // parada elegida por el astronauta (clic en el mapa o en un punto de Curiosity)
 const allStops=()=>custom?M.stops.concat([custom]):M.stops;
-const CARD=['norte','noreste','este','sureste','sur','suroeste','oeste','noroeste'],destLabel=()=>stop.custom?stop.name:'Parada '+stop.id;
-function renderStops(){$('stops').innerHTML=allStops().map(s=>`<label><input type="radio" name="st" value="${s.id}" ${s===stop?'checked':''}> ${s.custom?'★ '+s.name:'Parada '+s.id+' · al '+CARD[Math.round(bearing(ref,s.ll)/45)%8]}<small>${Math.round(s.out.distance_m)} m · ${Math.round(s.out.time_s/60)} min</small></label>`).join('')}
+const CARD=['north','northeast','east','southeast','south','southwest','west','northwest'],destLabel=()=>stop.custom?stop.name:'Stop '+stop.id;
+function renderStops(){$('stops').innerHTML=allStops().map(s=>`<label><input type="radio" name="st" value="${s.id}" ${s===stop?'checked':''}> ${s.custom?'★ '+s.name:'Stop '+s.id+' · '+CARD[Math.round(bearing(ref,s.ll)/45)%8]}<small>${Math.round(s.out.distance_m)} m · ${Math.round(s.out.time_s/60)} min</small></label>`).join('')}
 function planInfo(s,msg){const el=$('planinfo');if(msg){el.innerHTML=`<span class="bad">${msg}</span>`;return}
   const f=s.feasible!==false,al=(s.alerts||[]).length?`<span class="bad">⚠ ${s.alerts.join(', ')}</span><br>`:'';
-  el.innerHTML=`<b>Plan del motor</b> <span class="hint">(desde el refugio)</span><br>${Math.round(s.out.distance_m)} m · ida ${fmt(s.out.time_s)} · vuelta ${fmt(s.inb.time_s)} · subida ${Math.round(s.out.climb_m)} m<br>`+
-   `Consumo ida+vuelta: O₂ ${((s.out.o2_kg+s.inb.o2_kg)/P.o2_capacity_kg*100).toFixed(1)}% · batería ${((s.out.batt_wh+s.inb.batt_wh)/P.batt_capacity_wh*100).toFixed(1)}% · dosis ${((s.out.dose_msv+s.inb.dose_msv)*1000).toFixed(1)} µSv<br>`+
-   al+`<span class="${f?'ok':'bad'}">${f?'✔ Regreso factible':'✖ Regreso NO factible'}</span>`}
-async function pickPoint(r,c,name,sol){
-  if(phase==='evac'||phase==='done'||phase==='wait')return planInfo(null,'No se puede cambiar el destino '+(phase==='evac'?'durante una evacuación':'ahora'));
-  planInfo(null,'Calculando ruta…');
-  let res;try{res=await (await fetch(`/plan?goal=${r},${c}`)).json()}catch(e){return planInfo(null,'Sin conexión con el motor de rutas')}
-  if(!res.ok||!res.found)return planInfo(null,'✖ '+(res.error||'El motor no encontró ruta segura hasta ese punto'));
+  el.innerHTML=`<b>Engine plan</b> <span class="hint">(from habitat)</span><br>${Math.round(s.out.distance_m)} m · out ${fmt(s.out.time_s)} · back ${fmt(s.inb.time_s)} · climb ${Math.round(s.out.climb_m)} m<br>`+
+   `Round-trip use: O₂ ${((s.out.o2_kg+s.inb.o2_kg)/P.o2_capacity_kg*100).toFixed(1)}% · battery ${((s.out.batt_wh+s.inb.batt_wh)/P.batt_capacity_wh*100).toFixed(1)}% · dose ${((s.out.dose_msv+s.inb.dose_msv)*1000).toFixed(1)} µSv<br>`+
+   al+`<span class="${f?'ok':'bad'}">${f?'✔ Return feasible':'✖ Return NOT feasible'}</span>`}
+async function pickPoint(r,c,name,sol){if(OBS)return;
+  if(phase==='evac'||phase==='done'||phase==='wait')return planInfo(null,'Cannot change destination '+(phase==='evac'?'during an evacuation':'now'));
+  planInfo(null,'Computing route…');
+  let res;try{res=await (await fetch(`/plan?goal=${r},${c}`)).json()}catch(e){return planInfo(null,'No connection to the route engine')}
+  if(!res.ok||!res.found)return planInfo(null,'✖ '+(res.error||'The engine found no safe route to that point'));
   const g=res.snapped;custom={id:'X',custom:true,name,sol,site:null,row:g.row,col:g.col,ll:RC2LL(g.row,g.col),path:toPath(res.outbound.route.path),
     out:res.outbound.sim,inb:res.inbound.sim,feasible:res.return_feasible,alerts:res.alerts};
   pickMark.setLatLng(custom.ll).setOpacity(1);renderStops();select('X')}
-function select(id){const s=allStops().find(x=>x.id===id);if(!s)return;
+function select(id){if(OBS)return;const s=allStops().find(x=>x.id===id);if(!s)return;
   if(phase==='evac'||phase==='done'||phase==='wait'){renderStops();return}
   const here=curPos()[0];stop=s;renderStops();planInfo(s);
   if(phase==='idle'){path=stop.path;drawRoute();render();return}
@@ -265,7 +271,7 @@ function select(id){const s=allStops().find(x=>x.id===id);if(!s)return;
 function drawRoute(){routeLayer.clearLayers();const p=phase==='idle'?stop.path:path;
   for(let i=1;i<p.length;i++){const s=p[i][3];L.polyline([ll2(p[i-1]),ll2(p[i])],{color:s>15?'#ff9f0a':s>8?'#ffd60a':'#30d158',weight:5,opacity:.95}).addTo(routeLayer)}
   pov.setView(stop.ll,16);povMark.setLatLng(stop.ll);
-  $('povtxt').textContent=stop.sol?`Curiosity pasó por aquí el sol ${stop.sol}${stop.site?' (sitio '+stop.site+')':''}. Vista orbital HiRISE.`:'Punto elegido por el astronauta. Vista orbital HiRISE.'}
+  $('povtxt').textContent=stop.sol?`Curiosity passed here on sol ${stop.sol}${stop.site?' (site '+stop.site+')':''}. HiRISE orbital view.`:'Point chosen by the astronaut. HiRISE orbital view.'}
 renderStops();
 $('stops').onchange=e=>select(e.target.value);
 async function startEVA(){if(phase!=='idle')return;phase='wait';wantGoal={row:stop.row,col:stop.col};walked=[ref];met=0;rev=null;plan=null;
@@ -285,20 +291,20 @@ function logEv(text,kind=''){logLines.unshift({t:met,text,kind});logLines=logLin
   $('blog').innerHTML=logLines.map(l=>`<div class="${l.kind}"><span class="t">${hms(l.t)}</span>${l.text}</div>`).join('')}
 function orderReturn(why){ // la base ordena volver: el bus replanifica hacia el refugio desde la posición actual
   if(!['out','work'].includes(phase))return;const here=curPos()[0],[r,c]=LL2RC(here);walked.push(here);
-  phase='wait';wantGoal={row:REF.row,col:REF.col};cmd({type:'position',row:r,col:c}).then(()=>cmd({type:'set_goal',...wantGoal}));logEv('Orden de regreso al refugio · '+why,'bad')}
+  phase='wait';wantGoal={row:REF.row,col:REF.col};cmd({type:'position',row:r,col:c}).then(()=>cmd({type:'set_goal',...wantGoal}));logEv('Return-to-habitat order · '+why,'bad')}
 function triggerSOS(src){if(sos)return;sos={t:met,ll:curPos()[0],src};sosAck=false;orderReturn('SOS')}
-function cancelSOS(who){if(!sos)return;sos=null;sosAck=false;logEv('Emergencia cerrada por '+who,'ok')}
+function cancelSOS(who){if(!sos)return;sos=null;sosAck=false;logEv('Emergency closed by '+who,'ok')}
 function execOrder(type){ // órdenes de la base (locales o llegadas desde la otra pantalla)
-  if(type==='ret')orderReturn('orden de la base');else if(['storm','rad','comms'].includes(type))$(type).click();
-  else if(type==='sos')triggerSOS('simulado');else if(type==='ack'){if(sos)sosAck=true}else if(type==='close')cancelSOS('la base');render()}
-const baseOrder=type=>OBS?fetch('/eva/orden',{method:'POST',body:JSON.stringify({type})}).catch(()=>{}):execOrder(type);
+  if(type==='ret')orderReturn('mission control order');else if(['storm','rad','comms'].includes(type))$(type).click();
+  else if(type==='sos')triggerSOS('simulated');else if(type==='ack'){if(sos)sosAck=true}else if(type==='close')cancelSOS('mission control');render()}
+const baseOrder=type=>VIS?null:OBS?fetch('/eva/orden',{method:'POST',body:JSON.stringify({type})}).catch(()=>{}):execOrder(type);
 let ordSeq=null;async function pollOrders(){try{const r=await (await fetch('/eva/ordenes?since='+(ordSeq??0))).json();
   if(ordSeq!==null)r.orders.forEach(o=>execOrder(o.type));ordSeq=r.seq}catch(e){}} // la primera lectura solo se pone al día
 if(!OBS)setInterval(pollOrders,400);
 async function pollWatch(){try{const r=await (await fetch('/reloj?since='+btnSeq)).json();
-  $('bwatch').textContent=r.wifi?'WiFi '+r.wifi:r.usb?'USB':'desconectado';
+  $('bwatch').textContent=[r.puente&&'Bluetooth via laptop',r.bt&&'Bluetooth',r.wifi&&(typeof r.wifi==='string'?'WiFi '+r.wifi:'WiFi'),r.usb&&'USB'].filter(Boolean).join(' + ')||'disconnected';
   const first=!btnInit;btnInit=true; // la primera lectura solo se pone al día (no repite botones viejos)
-  for(const e of r.events){btnSeq=Math.max(btnSeq,e.seq);if(OBS||first)continue;if(e.button==='SOS')triggerSOS('botón del reloj');else if(e.button==='CANCEL')cancelSOS('el astronauta (reloj)')}}catch(e){}}
+  for(const e of r.events){btnSeq=Math.max(btnSeq,e.seq);if(OBS||first)continue;if(e.button==='SOS')triggerSOS('watch button');else if(e.button==='CANCEL')cancelSOS('the astronaut (watch)')}}catch(e){}}
 setInterval(pollWatch,300);
 async function poll(){if(OBS)return;try{const s=await (await fetch('/bus'+(rev!=null?'?rev='+rev:''))).json();busOk=s.connected;tele=s.telemetry;
   if(s.route){rev=s.route.revision;const r=s.route.resources;o2=r.o2_remaining_kg;bat=r.battery_remaining_wh;dose=r.cumulative_dose_msv;adoptPlan(s.route)}}catch(e){busOk=false}}
@@ -321,40 +327,40 @@ function step(dt){met+=dt;if(phase==='idle'||phase==='done'||phase==='wait')retu
 // ---------- render ----------
 const fmt=s=>{s=Math.max(0,Math.round(s));return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')};
 function bearing(a,b){const r=Math.PI/180,y=Math.sin((b[1]-a[1])*r)*Math.cos(b[0]*r),x=Math.cos(a[0]*r)*Math.sin(b[0]*r)-Math.sin(a[0]*r)*Math.cos(b[0]*r)*Math.cos((b[1]-a[1])*r);return (Math.atan2(y,x)/r+360)%360}
-const FL={STORM:'TORMENTA',RAD_PEAK:'PICO RADIACIÓN',O2_LOW:'O₂ BAJO',BATT_LOW:'BATERÍA BAJA',COMMS_LOST:'SIN ENLACE',ROUTE_STALE:'RECALCULANDO',EVA_ABORT:'ABORTAR EVA'};
-function flags(){const f=tele?tele.flag_names.map(n=>FL[n]||n):[];if(!busOk)f.unshift('SIN MOTOR');if(sos)f.unshift('SOS ASTRONAUTA');return f} // el backend decide las alertas
-const soft=x=>x==='SIN ENLACE'||x==='RECALCULANDO';
-function render(){
+const FL={STORM:'STORM',RAD_PEAK:'RADIATION PEAK',O2_LOW:'LOW O₂',BATT_LOW:'LOW BATTERY',COMMS_LOST:'NO LINK',ROUTE_STALE:'REPLANNING',EVA_ABORT:'ABORT EVA'};
+function flags(){const f=tele?tele.flag_names.map(n=>FL[n]||n):[];if(!busOk)f.unshift('NO ENGINE');if(sos)f.unshift('ASTRONAUT SOS');return f} // el backend decide las alertas
+const soft=x=>x==='NO LINK'||x==='REPLANNING';
+function render(){if(VIS){renderMirror(obsLast);return}
   const o=o2/P.o2_capacity_kg,b=bat/P.batt_capacity_wh,ttr=remainingReturn(),[pos,next,p]=curPos(),fl=flags();
   const h=Math.floor(met/3600),m=Math.floor(met/60)%60,s=Math.floor(met)%60;$('met').textContent=`MET ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
   $('o2').textContent=(o*100).toFixed(1)+'%';$('o2b').style.width=o*100+'%';$('o2b').style.background=o<P.o2_low?'var(--bad)':'var(--ok)';
   $('bat').textContent=(b*100).toFixed(1)+'%';$('batb').style.width=b*100+'%';$('batb').style.background=b<P.batt_low?'var(--bad)':'var(--ok)';
   $('dose').textContent=(dose*1000).toFixed(1)+' µSv';$('ttr').textContent=fmt(ttr);
   $('alerts').innerHTML=fl.map(x=>`<span class="pill ${soft(x)?'warn':'bad'}">${x}</span>`).join(' ');
-  $('be').className='pill '+(busOk?'ok':'bad');$('be').textContent=busOk?'MOTOR OK':'SIN MOTOR';$('be').title='plan rev '+(rev??'–');
-  const go=$('go');go.disabled=!['idle','done'].includes(phase);go.textContent={idle:'▶ Iniciar EVA',done:'↻ Nueva EVA'}[phase]||'EVA en curso · '+stateTxt();
+  $('be').className='pill '+(busOk?'ok':'bad');$('be').textContent=busOk?'ENGINE OK':'NO ENGINE';$('be').title='plan rev '+(rev??'–');
+  const go=$('go');go.disabled=!['idle','done'].includes(phase);go.textContent={idle:'▶ Start EVA',done:'↻ New EVA'}[phase]||'EVA in progress · '+stateTxt();
   const tb=$('tsos');tb.classList.toggle('on',!!sos);tb.classList.toggle('ack',!!sos&&sosAck);
-  $('tsostxt').innerHTML=sos?(sosAck?'BASE OK<small>MANTENER: CANCELAR</small>':'ENVIADO<small>MANTENER: CANCELAR</small>'):'SOS<small>MANTENER</small>';$('bsos').classList.toggle('on',!!sos);
-  $('link').className='pill '+(comms?'warn':'ok');$('link').textContent=comms?'SIN ENLACE · MODO AUTÓNOMO':'ENLACE HÁBITAT OK';
-  $('state').textContent={idle:'EN REFUGIO',wait:'CALCULANDO RUTA…',out:'IDA → PARADA '+stop.id,work:'MUESTREO '+fmt(dwell),ret:'REGRESO',evac:'EVACUACIÓN',done:'EVA COMPLETADA'}[phase];
+  $('tsostxt').innerHTML=sos?(sosAck?'BASE OK<small>HOLD: CANCEL</small>':'SENT<small>HOLD: CANCEL</small>'):'SOS<small>HOLD</small>';$('bsos').classList.toggle('on',!!sos);
+  $('link').className='pill '+(comms?'warn':'ok');$('link').textContent=comms?'NO LINK · AUTONOMOUS MODE':'HABITAT LINK OK';
+  $('state').textContent={idle:'AT HABITAT',wait:'COMPUTING ROUTE…',out:'OUTBOUND → STOP '+stop.id,work:'SAMPLING '+fmt(dwell),ret:'RETURNING',evac:'EVACUATION',done:'EVA COMPLETE'}[phase];
   $('state').className='pill '+(phase==='evac'?'bad':'');
   astro.setLatLng(pos);trail.setLatLngs(walked.concat([pos]));
   drawProfile(p,pos);drawWatch(pos,next,o,b,ttr,fl);drawCompass(pos,next);
   const wp=watchPacket(pos,next,o,b,ttr);drawOled(wp);sendUSB(wp);
   if(mode==='3d'&&window.V3D)V3D.update(pos,p,walked);
-  lastSnap={phase,met,o,b,dose,ttr,pos,fl,dest:destLabel(),stateTxt:stateTxt(),walked:walked.concat([pos]),route:(phase==='idle'?stop.path:path).map(ll2),
+  lastSnap={phase,met,o,b,dose,ttr,pos,next,wp,prof:p,fl,dest:destLabel(),stateTxt:stateTxt(),walked:walked.concat([pos]),route:(phase==='idle'?stop.path:path).map(ll2),
     planned:phase==='idle',sos,sosAck,busOk,storm,rad,comms,live:true};
   renderBase(lastSnap)}
 let lastSnap=null;
 if(!OBS)setInterval(()=>{if(lastSnap)fetch('/eva/estado',{method:'POST',body:JSON.stringify(lastSnap)}).catch(()=>{})},500); // la base (otra pantalla) lee esto
 // ---------- panel de la base ----------
 let bmap=null,bAstro,bRoute,bTrail,bSos;
-const stateTxt=()=>({idle:'EN REFUGIO',wait:'CALCULANDO RUTA',out:'IDA',work:'MUESTREO',ret:'REGRESO',evac:'EVACUACIÓN',done:'EVA COMPLETADA'}[phase]);
+const stateTxt=()=>({idle:'AT HABITAT',wait:'COMPUTING ROUTE',out:'OUTBOUND',work:'SAMPLING',ret:'RETURNING',evac:'EVACUATION',done:'EVA COMPLETE'}[phase]);
 function initBaseMap(){bmap=L.map('bmap',{crs:L.CRS.EPSG4326,attributionControl:false,maxZoom:19});
   L.tileLayer(T+'curiosity_hirise_mosaic'+Q,{maxNativeZoom:16,maxZoom:19}).addTo(bmap);bmap.fitBounds(B);
   L.rectangle(B,{color:'#64d2ff',weight:1,fill:false,dashArray:'4 4'}).addTo(bmap);
   L.polyline(M.traverse.map(q=>[q[0],q[1]]),{color:'#ff9f0a',weight:2,opacity:.8,dashArray:'2 6'}).addTo(bmap);
-  L.marker(ref,{icon:L.divIcon({className:'',html:'<div style="background:#64d2ff;color:#000;font-weight:700;border-radius:6px;padding:2px 6px;font-size:11px;white-space:nowrap">⌂ Hábitat</div>'})}).addTo(bmap);
+  L.marker(ref,{icon:L.divIcon({className:'',html:'<div style="background:#64d2ff;color:#000;font-weight:700;border-radius:6px;padding:2px 6px;font-size:11px;white-space:nowrap">⌂ Habitat</div>'})}).addTo(bmap);
   bRoute=L.polyline([],{color:'#ffd60a',weight:4}).addTo(bmap);bTrail=L.polyline([],{color:'#fff',weight:3,dashArray:'2 5'}).addTo(bmap);
   bAstro=L.circleMarker(ref,{radius:8,color:'#000',weight:2,fillColor:'#64d2ff',fillOpacity:1}).addTo(bmap).bindTooltip('EVA-01',{permanent:true,direction:'top',offset:[0,-8]});
   M.stops.forEach(q=>L.marker(q.ll,{interactive:false,icon:L.divIcon({className:'',html:`<div style="background:#ffd60a;color:#000;font-weight:700;border-radius:50%;width:20px;height:20px;display:grid;place-items:center;font-size:12px">${q.id}</div>`,iconSize:[20,20],iconAnchor:[10,10]})}).addTo(bmap))}
@@ -376,7 +382,7 @@ const SND={ // cada alerta tiene un patrón distinto para reconocerla sin mirar
   ok:()=>{tone(660,0,.12);tone(880,.13,.12);tone(1100,.26,.2)},                                                       // campanita que sube
   arrive:()=>{tone(784,0,.14);tone(1047,.16,.22)}};
 function play(n){if(!sndOn||!AC||AC.state!=='running'||!SND[n])return;SND[n]()}
-const FLSND={'TORMENTA':'storm','PICO RADIACIÓN':'rad','O₂ BAJO':'o2','BATERÍA BAJA':'bat','SIN ENLACE':'comms','ABORTAR EVA':'evac'};
+const FLSND={'STORM':'storm','RADIATION PEAK':'rad','LOW O₂':'o2','LOW BATTERY':'bat','NO LINK':'comms','ABORT EVA':'evac'};
 const SNDGAP=1500,SNDLEN={sos:2300+SNDGAP,storm:1000+SNDGAP,rad:1000+SNDGAP,o2:500+SNDGAP,bat:500+SNDGAP,evac:950+SNDGAP}; // duración de cada patrón + pausa de 1,5 s
 let sndPrev=null,sndNext=0,sndIdx=0;
 function alertSounds(S){ // suena al aparecer cada alerta y se repite en bucle mientras dure el peligro
@@ -394,16 +400,16 @@ function alertSounds(S){ // suena al aparecer cada alerta y se repite en bucle m
 let lastSosK='';
 function renderBase(S){ // S: estado de la EVA (local, o recibido del servidor en la pantalla de la base)
   if(S.live){alertSounds(S);
-    if(S.phase!==lastPhase){logEv('Estado: '+S.stateTxt+(S.phase==='out'?' → '+S.dest:''),S.phase==='evac'?'bad':S.phase==='done'?'ok':'');lastPhase=S.phase}
-    const al=S.fl.filter(x=>x!=='RECALCULANDO'&&x!=='SOS ASTRONAUTA').join(', ');if(al!==lastAl){if(al)logEv('Alertas: '+al,'bad');else if(lastAl)logEv('Sin alertas','ok');lastAl=al}
+    if(S.phase!==lastPhase){logEv('Status: '+S.stateTxt+(S.phase==='out'?' → '+S.dest:''),S.phase==='evac'?'bad':S.phase==='done'?'ok':'');lastPhase=S.phase}
+    const al=S.fl.filter(x=>x!=='REPLANNING'&&x!=='ASTRONAUT SOS').join(', ');if(al!==lastAl){if(al)logEv('Alerts: '+al,'bad');else if(lastAl)logEv('No alerts','ok');lastAl=al}
     const k=S.sos?(S.sosAck?'ack':'on'):'';
-    if(k!==lastSosK){if(k==='on')logEv('🆘 SOS recibido · origen: '+S.sos.src,'bad');else if(k==='ack')logEv('La base confirmó la recepción del SOS (el reloj muestra BASE OK)','ok');else logEv('Emergencia cerrada','ok');lastSosK=k}}
+    if(k!==lastSosK){if(k==='on')logEv('🆘 SOS received · source: '+S.sos.src,'bad');else if(k==='ack')logEv('Mission control confirmed the SOS (watch shows BASE OK)','ok');else logEv('Emergency closed','ok');lastSosK=k}}
   if($('base').style.display==='none')return;
   if(!bmap)initBaseMap();
-  $('bmet').textContent='MET '+hms(S.met);$('bbe').className='pill '+(S.busOk?'ok':'bad');$('bbe').textContent=S.busOk?'MOTOR OK':'SIN MOTOR';
-  $('blive').className='pill '+(S.live?'ok':'bad');$('blive').textContent=S.live?'EN VIVO':'SIN DATOS DEL ASTRONAUTA';
+  $('bmet').textContent='MET '+hms(S.met);$('bbe').className='pill '+(S.busOk?'ok':'bad');$('bbe').textContent=S.busOk?'ENGINE OK':'NO ENGINE';
+  $('blive').className='pill '+(S.live?'ok':'bad');$('blive').textContent=S.live?'LIVE':'NO ASTRONAUT DATA';
   $('balerts').innerHTML=S.fl.map(x=>`<span class="pill ${soft(x)?'warn':'bad'}">${x}</span>`).join(' ');
-  $('bstate').textContent=S.stateTxt;$('bdest').textContent=['ret','evac','done'].includes(S.phase)?'Refugio':S.dest;
+  $('bstate').textContent=S.stateTxt;$('bdest').textContent=['ret','evac','done'].includes(S.phase)?'Habitat':S.dest;
   $('bdist').textContent=Math.round(hav(S.pos,ref))+' m';$('bttr').textContent=fmt(S.ttr);
   $('bo2').textContent=(S.o*100).toFixed(1)+'%';$('bo2b').style.width=S.o*100+'%';$('bo2b').style.background=S.o<P.o2_low?'var(--bad)':'var(--ok)';
   $('bbat').textContent=(S.b*100).toFixed(1)+'%';$('bbatb').style.width=S.b*100+'%';$('bbatb').style.background=S.b<P.batt_low?'var(--bad)':'var(--ok)';
@@ -411,31 +417,53 @@ function renderBase(S){ // S: estado de la EVA (local, o recibido del servidor e
   $('bstorm').classList.toggle('on',!!S.storm);$('brad').classList.toggle('on',!!S.rad);
   bAstro.setLatLng(S.pos);bTrail.setLatLngs(S.walked);bRoute.setLatLngs(S.route);bRoute.setStyle({dashArray:S.planned?'6 8':null,opacity:S.planned?.6:1});
   const ban=$('sosban');ban.classList.toggle('on',!!S.sos);ban.classList.toggle('ack',!!S.sosAck);$('sosack').style.display=S.sosAck?'none':'';
-  if(S.sos){$('sostxt').textContent=`SOS DEL ASTRONAUTA · ${S.sos.src} · MET ${hms(S.sos.t)} · a ${Math.round(hav(S.sos.ll,ref))} m del hábitat`+(S.sosAck?' · recepción confirmada':'');
+  if(S.sos){$('sostxt').textContent=`ASTRONAUT SOS · ${S.sos.src} · MET ${hms(S.sos.t)} · ${Math.round(hav(S.sos.ll,ref))} m from habitat`+(S.sosAck?' · receipt confirmed':'');
     if(!bSos)bSos=L.marker(S.sos.ll,{icon:L.divIcon({className:'',html:'<div style="background:#ff453a;color:#fff;font-weight:800;border-radius:8px;padding:2px 6px;white-space:nowrap">🆘 SOS</div>'})}).addTo(bmap)}
   else if(bSos){bSos.remove();bSos=null}}
 // pantalla de la base: lee el estado que publica la tablet del astronauta
-let obsLast={phase:'idle',met:0,o:1,b:1,dose:0,ttr:0,pos:ref,fl:[],dest:'—',stateTxt:'SIN DATOS',walked:[ref],route:[],sos:null,sosAck:false,busOk:false,live:false};
+let obsLast={phase:'idle',met:0,o:1,b:1,dose:0,ttr:0,pos:ref,fl:[],dest:'—',stateTxt:'NO DATA',walked:[ref],route:[],sos:null,sosAck:false,busOk:false,live:false};
 async function obsTick(){try{const r=await (await fetch('/eva/estado')).json();
-  if(r.state&&r.age<4){obsLast=r.state;met=obsLast.met}else obsLast={...obsLast,live:false,stateTxt:'SIN DATOS'}}catch(e){obsLast={...obsLast,live:false}}
-  renderBase(obsLast)}
+  if(r.state&&r.age<4){obsLast=r.state;met=obsLast.met}else obsLast={...obsLast,live:false,stateTxt:'NO DATA'}}catch(e){obsLast={...obsLast,live:false}}
+  renderBase(obsLast);if(VIS)renderMirror(obsLast)}
+// visitante: dibuja la tablet y el reloj con el estado que publica la tablet del operador
+let mirRoute='';
+function renderMirror(S){if(!S)return;
+  $('met').textContent='MET '+hms(S.met||0);
+  $('o2').textContent=(S.o*100).toFixed(1)+'%';$('o2b').style.width=S.o*100+'%';$('o2b').style.background=S.o<P.o2_low?'var(--bad)':'var(--ok)';
+  $('bat').textContent=(S.b*100).toFixed(1)+'%';$('batb').style.width=S.b*100+'%';$('batb').style.background=S.b<P.batt_low?'var(--bad)':'var(--ok)';
+  $('dose').textContent=(S.dose*1000).toFixed(1)+' µSv';$('ttr').textContent=fmt(S.ttr);
+  $('alerts').innerHTML=S.fl.map(x=>`<span class="pill ${soft(x)?'warn':'bad'}">${x}</span>`).join(' ');
+  $('be').className='pill '+(S.busOk?'ok':'bad');$('be').textContent=S.busOk?'ENGINE OK':'NO ENGINE';
+  $('go').disabled=true;$('go').textContent=S.live?'👁 Live EVA · '+S.stateTxt:'👁 Waiting for the astronaut tablet…';
+  const tb=$('tsos');tb.classList.toggle('on',!!S.sos);tb.classList.toggle('ack',!!S.sos&&!!S.sosAck);
+  $('tsostxt').innerHTML=S.sos?(S.sosAck?'BASE OK<small>SOS</small>':'SENT<small>SOS</small>'):'SOS<small>READ ONLY</small>';
+  $('link').className='pill '+(S.comms?'warn':'ok');$('link').textContent=S.comms?'NO LINK · AUTONOMOUS MODE':'HABITAT LINK OK';
+  $('state').textContent=S.stateTxt;$('state').className='pill '+(S.phase==='evac'?'bad':'');
+  $('planinfo').innerHTML='<b>Destination:</b> '+(['ret','evac','done'].includes(S.phase)?'Habitat':S.dest)+'<br><span class="hint">Only the operator picks the stop and controls the EVA.</span>';
+  astro.setLatLng(S.pos);trail.setLatLngs(S.walked||[]);
+  const p=S.prof||[],key=p.length+':'+(p[0]||'')+':'+(p[p.length-1]||'');
+  if(key!==mirRoute){mirRoute=key;routeLayer.clearLayers();
+    for(let i=1;i<p.length;i++){const s=p[i][3];L.polyline([ll2(p[i-1]),ll2(p[i])],{color:s>15?'#ff9f0a':s>8?'#ffd60a':'#30d158',weight:5,opacity:.95}).addTo(routeLayer)}}
+  if(p.length)drawProfile(p,S.pos);
+  drawWatch(S.pos,S.next||null,S.o,S.b,S.ttr,S.fl);drawCompass(S.pos,S.next||null);if(S.wp)drawOled(S.wp);
+  if(mode==='3d'&&window.V3D&&p.length)V3D.update(S.pos,p,S.walked||[])}
 $('fs').onclick=()=>{const d=document;if(d.fullscreenElement)d.exitFullscreen();else d.documentElement.requestFullscreen().then(()=>{try{screen.orientation.lock('landscape').catch(()=>{})}catch(e){}}).catch(()=>{})};
 document.addEventListener('fullscreenchange',()=>{$('fs').classList.toggle('on',!!document.fullscreenElement);setTimeout(()=>{map.invalidateSize();if(window.V3D)V3D.resize();if(bmap)bmap.invalidateSize()},300)});
 // Botón SOS de la tablet: mantener 1,5 s (igual que el botón del reloj)
 (()=>{const b=$('tsos');let t0=0,raf=0;
   const stop=()=>{t0=0;cancelAnimationFrame(raf);b.style.setProperty('--p',0)};
   const tick=()=>{if(!t0)return;const k=(performance.now()-t0)/1500;
-    if(k>=1){stop();if(sos)cancelSOS('el astronauta (tablet)');else triggerSOS('botón de la tablet');render();return}b.style.setProperty('--p',k);raf=requestAnimationFrame(tick)};
-  b.addEventListener('pointerdown',e=>{e.preventDefault();e.stopPropagation();b.setPointerCapture(e.pointerId);t0=performance.now();tick()});
+    if(k>=1){stop();if(sos)cancelSOS('the astronaut (tablet)');else triggerSOS('tablet button');render();return}b.style.setProperty('--p',k);raf=requestAnimationFrame(tick)};
+  b.addEventListener('pointerdown',e=>{if(OBS)return;e.preventDefault();e.stopPropagation();b.setPointerCapture(e.pointerId);t0=performance.now();tick()});
   ['pointerup','pointercancel','pointerleave'].forEach(ev=>b.addEventListener(ev,stop));
   b.addEventListener('click',e=>e.stopPropagation());b.addEventListener('contextmenu',e=>e.preventDefault())})();
-$('bret').onclick=()=>{baseOrder('ret');if(OBS)logEv('La base ordena regresar al refugio','bad')};
-$('bstorm').onclick=()=>{baseOrder('storm');if(OBS)logEv('La base cambia la alerta de tormenta','bad')};
-$('brad').onclick=()=>{baseOrder('rad');if(OBS)logEv('La base cambia la alerta de radiación','bad')};
+$('bret').onclick=()=>{baseOrder('ret');if(OBS)logEv('Mission control orders return to habitat','bad')};
+$('bstorm').onclick=()=>{baseOrder('storm');if(OBS)logEv('Mission control toggles the storm alert','bad')};
+$('brad').onclick=()=>{baseOrder('rad');if(OBS)logEv('Mission control toggles the radiation alert','bad')};
 $('bsos').onclick=()=>baseOrder('sos');
 $('sosack').onclick=()=>baseOrder('ack');
 $('soscancel').onclick=()=>baseOrder('close');
-const sndBtn=()=>{$('snd').classList.toggle('on',sndOn);$('snd').textContent=sndOn?'🔊 Sonido':'🔇 Silencio'};sndBtn();
+const sndBtn=()=>{$('snd').classList.toggle('on',sndOn);$('snd').textContent=sndOn?'🔊 Sound':'🔇 Muted'};sndBtn();
 $('snd').onclick=()=>{sndOn=!sndOn;try{localStorage.setItem('evaSnd',sndOn?'1':'0')}catch(e){}sndBtn();if(sndOn){unlock();play('ok')}};
 $('sndtest').onclick=e=>{const n=e.target.dataset.s;if(n){unlock();const was=sndOn;sndOn=true;play(n);sndOn=was}};
 $('simbtn').onclick=()=>{const b=$('simbox'),on=b.style.display==='none';b.style.display=on?'':'none';$('simbtn').classList.toggle('on',on)};
@@ -443,7 +471,7 @@ function drawProfile(p,pos){const c=$('prof'),r=c.getBoundingClientRect();if(!r.
   const g=c.getContext('2d');g.scale(devicePixelRatio,devicePixelRatio);const W=r.width,H=r.height,pad=34;
   const d=[0];for(let i=1;i<p.length;i++)d.push(d[i-1]+hav(p[i-1],p[i]));const ev=p.map(x=>x[2]),lo=Math.min(...ev)-2,hi=Math.max(...ev)+2,D=d[d.length-1]||1;
   const X=v=>pad+(W-pad-10)*v/D,Y=e=>H-22-(H-40)*(e-lo)/(hi-lo);
-  g.fillStyle='rgba(235,240,250,.7)';g.font='11px system-ui';g.fillText('Perfil de elevación de la ruta  ·  '+Math.round(D)+' m  ·  desnivel '+Math.round(hi-lo-4)+' m',pad,14);
+  g.fillStyle='rgba(235,240,250,.7)';g.font='11px system-ui';g.fillText('Route elevation profile  ·  '+Math.round(D)+' m  ·  relief '+Math.round(hi-lo-4)+' m',pad,14);
   g.fillText(Math.round(hi)+' m',2,Y(hi)+4);g.fillText(Math.round(lo)+' m',2,Y(lo));
   for(let i=1;i<p.length;i++){const s=p[i][3];g.strokeStyle=s>15?'#ff9f0a':s>8?'#ffd60a':'#30d158';g.lineWidth=2.5;g.beginPath();g.moveTo(X(d[i-1]),Y(ev[i-1]));g.lineTo(X(d[i]),Y(ev[i]));g.stroke()}
   let k=0,best=1e9;p.forEach((q,i)=>{const dd=Math.abs(q[0]-pos[0])+Math.abs(q[1]-pos[1]);if(dd<best){best=dd;k=i}});
@@ -454,21 +482,21 @@ function arc(r,v,col){const a=Math.max(0.0001,Math.min(v,1))*270,s=135,e=s+a,R=M
 function drawWatch(pos,next,o,b,ttr,fl){
   const alert=fl.some(x=>!soft(x));$('wglass').classList.toggle('alert',alert);
   const tgt=phase==='out'?stop.ll:ref,dist=(phase==='idle'||phase==='done')?0:hav(pos,tgt),brg=next?bearing(pos,next):0,evac=phase==='evac';
-  const main=fl.filter(x=>!soft(x))[0]||({idle:'LISTO',wait:'CALCULANDO',out:'→ PARADA '+stop.id,work:'MUESTREO',ret:'→ REFUGIO',evac:'EVACUAR',done:'FIN EVA'}[phase]);
+  const main=fl.filter(x=>!soft(x))[0]||({idle:'READY',wait:'ROUTING',out:'→ STOP '+stop.id,work:'SAMPLING',ret:'→ HABITAT',evac:'EVACUATE',done:'EVA DONE'}[phase]);
   const t=(x,y,sz,col,txt,w=700)=>`<text x="${x}" y="${y}" fill="${col}" font-size="${sz}" font-weight="${w}" text-anchor="middle" font-family="system-ui">${txt}</text>`;
   $('wsvg').innerHTML=arc(150,o,o<P.o2_low?'#ff453a':'#30d158')+arc(136,b,b<P.batt_low?'#ff453a':'#64d2ff')+
-   t(162,62,17,alert?'#ff453a':'#ffd60a',main,800)+t(162,88,11,'#ff453a','N',800)+t(112,132,11,'#8a94a3','O')+t(212,132,11,'#8a94a3','E')+
+   t(162,62,17,alert?'#ff453a':'#ffd60a',main,800)+t(162,88,11,'#ff453a','N',800)+t(112,132,11,'#8a94a3','W')+t(212,132,11,'#8a94a3','E')+
    `<g transform="translate(162 128) rotate(${brg})"><path d="M0 -34 L18 14 L0 4 L-18 14Z" fill="${evac?'#ff453a':'#fff'}"/></g>`+
    `<text x="162" y="190" fill="#fff" font-size="40" font-weight="800" text-anchor="middle" font-family="system-ui">${Math.round(dist)}<tspan font-size="16" fill="#8a94a3"> m</tspan></text>`+
-   t(162,214,13,'#8a94a3',`RUMBO ${Math.round(brg)}°  ·  TTR ${fmt(ttr)}`,400)+
+   t(162,214,13,'#8a94a3',`HDG ${Math.round(brg)}°  ·  TTR ${fmt(ttr)}`,400)+
    t(92,250,15,o<P.o2_low?'#ff453a':'#30d158',`O₂ ${Math.round(o*100)}%`)+t(232,250,15,b<P.batt_low?'#ff453a':'#64d2ff',`BAT ${Math.round(b*100)}%`)+
-   t(162,276,13,'#8a94a3',`☢ ${(dose*1000).toFixed(1)} µSv${comms?'  ·  SIN ENLACE':''}`,400)}
+   t(162,276,13,'#8a94a3',`☢ ${(dose*1000).toFixed(1)} µSv${comms?'  ·  NO LINK':''}`,400)}
 function drawCompass(pos,next){
   const az=(mode==='3d'&&window.V3D)?V3D.heading():0,brg=next?bearing(pos,next):null,c=62,R=Math.PI/180;
   let ticks='';for(let a=0;a<360;a+=15){const big=a%90===0,r1=big?44:47;
     ticks+=`<line x1="${c+r1*Math.sin(a*R)}" y1="${c-r1*Math.cos(a*R)}" x2="${c+52*Math.sin(a*R)}" y2="${c-52*Math.cos(a*R)}" stroke="${a===0?'#ff453a':'rgba(255,255,255,.55)'}" stroke-width="${big?2:1}"/>`}
   const Lb=(txt,a,col)=>{const x=c+35*Math.sin(a*R),y=c-35*Math.cos(a*R);return `<text x="${x}" y="${y+4}" fill="${col}" font-size="11" font-weight="800" text-anchor="middle" font-family="system-ui" transform="rotate(${az} ${x} ${y})">${txt}</text>`};
-  $('csvg').innerHTML=`<g transform="rotate(${-az} ${c} ${c})">${ticks}${Lb('N',0,'#ff453a')}${Lb('E',90,'#fff')}${Lb('S',180,'#fff')}${Lb('O',270,'#fff')}</g>`+
+  $('csvg').innerHTML=`<g transform="rotate(${-az} ${c} ${c})">${ticks}${Lb('N',0,'#ff453a')}${Lb('E',90,'#fff')}${Lb('S',180,'#fff')}${Lb('W',270,'#fff')}</g>`+
    (brg===null?'':`<g transform="rotate(${brg-az} ${c} ${c})"><path d="M${c} ${c-26} L${c+7} ${c+2} L${c} ${c-3} L${c-7} ${c+2}Z" fill="${phase==='evac'?'#ff453a':'#64d2ff'}"/></g>`)+
    `<circle cx="${c}" cy="${c}" r="3" fill="#fff"/><text x="${c}" y="${c+24}" fill="#fff" font-size="12" font-weight="700" text-anchor="middle" font-family="system-ui">${brg===null?'—':Math.round(brg)+'°'}</text>`}
 // ---------- reloj físico: ESP32 + OLED por Web Serial ----------
@@ -476,17 +504,17 @@ function watchPacket(pos,next,o,b,ttr){
   const brg=next?bearing(pos,next):-1,az=(mode==='3d'&&window.V3D)?V3D.heading():0;
   const tgt=phase==='out'?stop.ll:ref,dist=(phase==='idle'||phase==='done')?0:hav(pos,tgt);
   const tf=tele?tele.flags:0,flags=(tf&0x1F)|((phase==='evac'||tf&64)?32:0)|(sos?64:0)|(sos&&sosAck?128:0); // bits 0-4 iguales; evacuación/abortar -> bit 5
-  const crit=[[1,'TORMENTA'],[2,'RADIACION'],[4,'O2 BAJO'],[8,'BAT BAJA'],[32,'EVACUAR']].find(([k])=>flags&k);
-  const text=sos?(sosAck?'BASE OK':'SOS ACTIVO'):crit?crit[1]:({idle:'LISTO',wait:'CALCULANDO',out:'>PARADA '+stop.id,work:'MUESTREO',ret:'>REFUGIO',evac:'EVACUAR',done:'FIN EVA'}[phase]);
+  const crit=[[1,'STORM'],[2,'RADIATION'],[4,'LOW O2'],[8,'LOW BAT'],[32,'EVACUATE']].find(([k])=>flags&k);
+  const text=sos?(sosAck?'BASE OK':'SOS ACTIVE'):crit?crit[1]:({idle:'READY',wait:'ROUTING',out:'>STOP '+stop.id,work:'SAMPLING',ret:'>HABITAT',evac:'EVACUATE',done:'EVA DONE'}[phase]);
   return {brg,az,dist,o2:Math.round(o*100),bat:Math.round(b*100),ttr:Math.round(ttr),dose10:Math.round(dose*1e4),flags,text}}
 let usbPort=null,usbWriter=null,usbLast=0,usbSent=0;
 $('usb').onclick=async()=>{
   const info=$('usbinfo');
-  if(!('serial' in navigator)){info.textContent='Este navegador no soporta Web Serial (usa Chrome o Edge).';return}
+  if(!('serial' in navigator)){info.textContent='This browser does not support Web Serial (use Chrome or Edge).';return}
   try{usbPort=await navigator.serial.requestPort();await usbPort.open({baudRate:115200});usbWriter=usbPort.writable.getWriter();
-    $('usb').classList.add('on');$('usb').textContent='⚡ Reloj USB conectado';info.textContent='Enviando al ESP32 a 10 Hz';
-    usbPort.addEventListener('disconnect',()=>{usbWriter=null;usbPort=null;$('usb').classList.remove('on');$('usb').textContent='⚡ Conectar reloj USB';info.textContent='Reloj USB desconectado'});
-  }catch(e){info.textContent='No se pudo abrir el puerto: '+e.message}};
+    $('usb').classList.add('on');$('usb').textContent='⚡ USB watch connected';info.textContent='Sending to the ESP32 at 10 Hz';
+    usbPort.addEventListener('disconnect',()=>{usbWriter=null;usbPort=null;$('usb').classList.remove('on');$('usb').textContent='⚡ Connect USB watch';info.textContent='USB watch disconnected'});
+  }catch(e){info.textContent='Could not open the port: '+e.message}};
 // Puente USB del servidor local (servidor.py): sin elegir puerto en Chrome.
 let bridgeBusy=false;
 const SID=Math.random().toString(36).slice(2)+Date.now().toString(36); // esta pantalla toma el control del reloj
@@ -494,12 +522,12 @@ fetch('/estado').then(r=>r.ok?r.json():null).then(async st=>{if(!st||!st.tty||OB
   await fetch('/reloj/tomar',{method:'POST',body:SID}).catch(()=>{});
   usbWriter={write:b=>{if(bridgeBusy)return Promise.resolve();bridgeBusy=true;
     return fetch('/w',{method:'POST',body:b,headers:{'X-Sesion':SID}}).then(r=>{bridgeBusy=false;
-      if(r.status===409)throw new Error('otra pantalla tomó el control del reloj (recarga para recuperarlo)');
-      if(!r.ok&&r.status!==400)throw new Error('puerto '+st.tty+' no disponible')}).catch(e=>{bridgeBusy=false;throw e})}};
-  $('usb').classList.add('on');$('usb').textContent='⚡ Reloj conectado';$('usbinfo').textContent='Puente local → '+(st.wifi?'WiFi '+st.wifi:st.tty)+' a 10 Hz'}).catch(()=>{});
+      if(r.status===409)throw new Error('another screen took control of the watch (reload to take it back)');
+      if(!r.ok&&r.status!==400)throw new Error('port '+st.tty+' not available')}).catch(e=>{bridgeBusy=false;throw e})}};
+  $('usb').classList.add('on');$('usb').textContent='⚡ Watch connected';$('usbinfo').textContent='Bridge → '+([st.puente&&'laptop (Bluetooth)',st.bt&&'Bluetooth',st.wifi&&'WiFi '+st.wifi,st.usb&&st.tty].filter(Boolean).join(' + ')||st.tty)+' a 10 Hz'}).catch(()=>{});
 function sendUSB(w){if(!usbWriter)return;const now=performance.now();if(now-usbLast<100)return;usbLast=now;
   const line=`$W,${w.brg.toFixed(0)},${w.az.toFixed(0)},${w.dist.toFixed(0)},${w.o2},${w.bat},${w.ttr},${w.dose10},${w.flags},${w.text.replace(/,/g,' ')}\n`;
-  usbWriter.write(new TextEncoder().encode(line)).then(()=>{if(++usbSent%50===0)$('usbinfo').textContent='Enviando al ESP32 · '+usbSent+' tramas'}).catch(e=>{usbWriter=null;$('usbinfo').textContent='Error de envío: '+e.message})}
+  usbWriter.write(new TextEncoder().encode(line)).then(()=>{if(++usbSent%50===0)$('usbinfo').textContent='Sending to the ESP32 · '+usbSent+' frames'}).catch(e=>{if(e.message.startsWith('another screen'))usbWriter=null;$('usbinfo').textContent=(usbWriter?'Retrying… ':'')+'Send error: '+e.message})}
 // Arranque del reloj: misma animación que el ESP32 (texto ARES de logo_ares.h + planeta y anillo girando)
 const OLED_LOGO=new Image();OLED_LOGO.src='oled_logo.png';let bootT0=performance.now(),oledBoot=bootT0+3700;
 function drawAres(c,cd){const PCX=61.44,PCY=27.42,PR=27.28,PBOT=35.97,RCX=61.31,RCY=22.03,RA=37.78,RB=4.63,TH=-0.29147;
@@ -530,16 +558,16 @@ function drawOled(w){ // réplica del dibujo del ESP32 (128x64 monocromo)
   c.beginPath();c.moveTo(cx,cy-3);c.lineTo(cx-2,cy+2);c.lineTo(cx+2,cy+2);c.closePath();c.stroke();
   c.font='bold 9px monospace';c.fillText(w.text,66,8);
   c.font='bold 17px sans-serif';const ds=String(Math.round(w.dist));c.fillText(ds,66,25);const dw=c.measureText(ds).width;c.font='9px monospace';c.fillText('m',66+dw+2,25);
-  c.font='8px monospace';c.fillText(w.brg>=0?'RUMBO '+Math.round(w.brg)+'°':'RUMBO --',66,33);c.fillText('TTR '+fmt(w.ttr),66,41);
-  c.fillText((w.dose10/10).toFixed(1)+' uSv'+(w.flags&16?' SE':''),66,49);
+  c.font='8px monospace';c.fillText(w.brg>=0?'HDG '+Math.round(w.brg)+'°':'HDG --',66,33);c.fillText('TTR '+fmt(w.ttr),66,41);
+  c.fillText((w.dose10/10).toFixed(1)+' uSv'+(w.flags&16?' NL':''),66,49);
   const bar=(y,lab,p)=>{const X=79,W=48,H=6;c.font='6px monospace';c.fillStyle='#fff';c.fillText(lab,66,y+H-1);
     c.strokeRect(X+.5,y+.5,W-1,H-1);c.fillRect(X+1,y+1,Math.floor((W-2)*p/100),H-2);
     const t=p+'%',tw=c.measureText(t).width;c.globalCompositeOperation='difference';c.fillText(t,X+(W-tw)/2,y+H-1);c.globalCompositeOperation='source-over'};
   bar(51,'O2',w.o2);bar(58,'BAT',w.bat);
   if((w.flags&111)&&Math.floor(performance.now()/400)%2){c.globalCompositeOperation='difference';c.fillRect(0,0,128,64);c.globalCompositeOperation='source-over'}}
 // ---------- controles ----------
-$('go').onclick=()=>{if(phase==='done'){phase='idle';walked=[ref];path=stop.path;idx=0;frac=0;drawRoute();render();return}startEVA();render()};
-const speeds=[1,30,120];$('spd').onclick=()=>{speed=speeds[(speeds.indexOf(speed)+1)%speeds.length];$('spd').textContent='Velocidad ×'+speed};
+$('go').onclick=()=>{if(OBS)return;if(phase==='done'){phase='idle';walked=[ref];path=stop.path;idx=0;frac=0;drawRoute();render();return}startEVA();render()};
+const speeds=[1,30,120];$('spd').onclick=()=>{speed=speeds[(speeds.indexOf(speed)+1)%speeds.length];$('spd').textContent='Speed ×'+speed};
 function toggle(id,type,get,set){$(id).onclick=()=>{set(!get());$(id).classList.toggle('on',get());cmd({type,active:get()});render()}} // el bus replanifica
 toggle('storm','storm',()=>storm,v=>storm=v);toggle('rad','radiation_peak',()=>rad,v=>rad=v);toggle('comms','comms_lost',()=>comms,v=>comms=v);
 document.querySelectorAll('.top .cap[data-v]').forEach(bt=>bt.onclick=()=>{document.querySelectorAll('.top .cap[data-v]').forEach(x=>x.classList.toggle('on',x===bt));
@@ -550,7 +578,7 @@ document.querySelectorAll('.vcap').forEach(bt=>bt.onclick=async()=>{mode=bt.data
   $('legend').style.display=is3?'none':'';$('hint3d').style.display=is3?'block':'none';
   if(is3){await V3D.init({M,bb,ref});V3D.resize()}else map.invalidateSize();render()});
 drawRoute();render();planInfo(stop);
-if(OBS)document.querySelector('.cap[data-v=base]').click();else if(matchMedia('(max-width:1240px)').matches)document.querySelector('.cap[data-v=tablet]').click();
+if(ROLB)document.querySelector('.cap[data-v=base]').click();else if(matchMedia('(max-width:1240px)').matches)document.querySelector('.cap[data-v=tablet]').click();
 if(OBS)setInterval(obsTick,400);
 let last=performance.now();if(!OBS)setInterval(()=>{const now=performance.now(),dt=(now-last)/1000*speed;last=now;step(dt);render()},100);
 })();
@@ -594,9 +622,9 @@ function init(app){if(inited)return inited;APP=app;inited=(async()=>{
   const ground=new THREE.Mesh(geo,new THREE.MeshStandardMaterial({color:0xe8b48c,roughness:1,metalness:0}));scene.add(ground);
   texture().then(t=>{ground.material.map=t;ground.material.needsUpdate=true});
   const rf=llToRC(APP.ref);const hab=new THREE.Mesh(new THREE.CylinderGeometry(6,6,10,16),new THREE.MeshStandardMaterial({color:0x64d2ff,emissive:0x1a4a60}));
-  hab.position.copy(xyz(rf[0],rf[1],5));scene.add(hab);const lr=label('⌂ Refugio','#64d2ff');lr.position.copy(xyz(rf[0],rf[1],34));scene.add(lr);
+  hab.position.copy(xyz(rf[0],rf[1],5));scene.add(hab);const lr=label('⌂ Habitat','#64d2ff');lr.position.copy(xyz(rf[0],rf[1],34));scene.add(lr);
   APP.M.stops.forEach(s=>{const p=xyz(s.row,s.col),cone=new THREE.Mesh(new THREE.ConeGeometry(5,14,12),new THREE.MeshStandardMaterial({color:0xffd60a,emissive:0x664f00}));
-    cone.position.copy(p).add(new THREE.Vector3(0,7,0));cone.rotation.x=Math.PI;scene.add(cone);const l=label('Parada '+s.id,'#ffd60a');l.position.copy(p).add(new THREE.Vector3(0,30,0));scene.add(l)});
+    cone.position.copy(p).add(new THREE.Vector3(0,7,0));cone.rotation.x=Math.PI;scene.add(cone);const l=label('Stop '+s.id,'#ffd60a');l.position.copy(p).add(new THREE.Vector3(0,30,0));scene.add(l)});
   astro=new THREE.Group();const ball=new THREE.Mesh(new THREE.SphereGeometry(4.5,20,16),new THREE.MeshStandardMaterial({color:0xffffff,emissive:0x2a6a88}));ball.position.y=9;
   const pole=new THREE.Mesh(new THREE.CylinderGeometry(.6,.6,9,8),new THREE.MeshBasicMaterial({color:0xffffff}));pole.position.y=4.5;astro.add(ball,pole);scene.add(astro);
   const loop=()=>{requestAnimationFrame(loop);if(el.style.display==='none')return;ctl.update();R.render(scene,cam)};loop();

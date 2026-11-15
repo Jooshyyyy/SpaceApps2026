@@ -35,6 +35,7 @@
 #include <WebServer.h>
 #include <Preferences.h>
 #include "logo_ares.h"
+#include <BluetoothSerial.h>
 
 // Las pantallas de 1.3" suelen usar SH1106. Si la imagen sale corrida 2 píxeles
 // o con una franja de basura a la derecha, comenta esta línea y usa la de SSD1306.
@@ -57,7 +58,7 @@ struct State {
   float brg = -1, az = 0, dist = 0;
   int o2 = 100, bat = 100, ttr = 0, dose10 = 0;
   uint8_t flags = 0;
-  char text[20] = "ESPERANDO";
+  char text[20] = "WAITING";
   uint32_t lastRx = 0;
   bool everRx = false;
 } st;
@@ -84,17 +85,26 @@ void parseLine(char* s) {
   st.everRx = true;
 }
 
-void readSerial() {
-  while (Serial.available()) {
-    char c = (char)Serial.read();
+BluetoothSerial SerialBT;  // Bluetooth clásico (puerto serie) con el nombre "ARES-Watch"
+char btLine[sizeof(line)];
+size_t btLen = 0;
+
+void readStream(Stream& in, char* buf, size_t cap, size_t& len) {
+  while (in.available()) {
+    char c = (char)in.read();
     if (c == '\n' || c == '\r') {
-      if (lineLen) { line[lineLen] = 0; parseLine(line); lineLen = 0; }
-    } else if (lineLen < sizeof(line) - 1) {
-      line[lineLen++] = c;
+      if (len) { buf[len] = 0; parseLine(buf); len = 0; }
+    } else if (len < cap - 1) {
+      buf[len++] = c;
     } else {
-      lineLen = 0;  // línea demasiado larga: se descarta
+      len = 0;  // línea demasiado larga: se descarta
     }
   }
+}
+
+void readSerial() {
+  readStream(Serial, line, sizeof(line), lineLen);
+  readStream(SerialBT, btLine, sizeof(btLine), btLen);
 }
 
 void drawCompass(int cx, int cy, int r) {
@@ -160,12 +170,12 @@ void drawInfo() {
   oled.drawStr(66 + numW + 2, 25, "m");
 
   oled.setFont(u8g2_font_5x8_tf);
-  if (st.brg >= 0) snprintf(buf, sizeof(buf), "RUMBO %d\xb0", (int)roundf(st.brg));
-  else strlcpy(buf, "RUMBO --", sizeof(buf));
+  if (st.brg >= 0) snprintf(buf, sizeof(buf), "HDG %d\xb0", (int)roundf(st.brg));
+  else strlcpy(buf, "HDG --", sizeof(buf));
   oled.drawStr(66, 33, buf);
   snprintf(buf, sizeof(buf), "TTR %d:%02d", st.ttr / 60, st.ttr % 60);
   oled.drawStr(66, 41, buf);
-  snprintf(buf, sizeof(buf), "%d.%d uSv%s", st.dose10 / 10, st.dose10 % 10, (st.flags & F_COMMS) ? " SE" : "");
+  snprintf(buf, sizeof(buf), "%d.%d uSv%s", st.dose10 / 10, st.dose10 % 10, (st.flags & F_COMMS) ? " NL" : "");
   oled.drawStr(66, 49, buf);
 
   drawBar(51, "O2", st.o2);
@@ -200,30 +210,30 @@ void handlePortal() {  // página de configuración: elegir la red y escribir la
     opts += "<option value=\"" + e + "\">" + e + " (" + String(WiFi.RSSI(i)) + " dBm)</option>";
   }
   web.send(200, "text/html; charset=utf-8",
-    "<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'><title>Reloj Mars EVA</title>"
+    "<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'><title>ARES Watch</title>"
     "<body style='font-family:system-ui;background:#111;color:#eee;max-width:420px;margin:24px auto;padding:0 16px'>"
-    "<h2>Reloj Mars EVA · WiFi</h2><form method=post action=/guardar>"
-    "<p>Red<br><input name=ssid list=redes required style='width:100%;padding:10px;font-size:16px'><datalist id=redes>" + opts + "</datalist></p>"
-    "<p>Contraseña<br><input name=pass type=password style='width:100%;padding:10px;font-size:16px'></p>"
-    "<button style='width:100%;padding:12px;font-size:16px'>Guardar y conectar</button></form>"
-    "<p style='color:#999;font-size:13px'>La red debe ser la misma de la computadora que corre servidor.py.</p>");
+    "<h2>ARES Watch · WiFi</h2><form method=post action=/guardar>"
+    "<p>Network<br><input name=ssid list=redes required style='width:100%;padding:10px;font-size:16px'><datalist id=redes>" + opts + "</datalist></p>"
+    "<p>Password<br><input name=pass type=password style='width:100%;padding:10px;font-size:16px'></p>"
+    "<button style='width:100%;padding:12px;font-size:16px'>Save and connect</button></form>"
+    "<p style='color:#999;font-size:13px'>Use the same network as the computer running servidor.py.</p>");
 }
 
 void handleSave() {
   const String ssid = web.arg("ssid"), pass = web.arg("pass");
-  if (ssid.isEmpty() || ssid.length() > 32 || pass.length() > 63) { web.send(400, "text/plain", "Datos inválidos"); return; }
+  if (ssid.isEmpty() || ssid.length() > 32 || pass.length() > 63) { web.send(400, "text/plain", "Invalid data"); return; }
   prefs.begin("wifi", false);
   prefs.putString("ssid", ssid);
   prefs.putString("pass", pass);
   prefs.end();
   web.send(200, "text/html; charset=utf-8", "<meta name=viewport content='width=device-width'><body style='font-family:system-ui'>"
-                                           "<h3>Guardado. El reloj se reinicia y se conecta a " + htmlEscape(ssid) + ".</h3>");
+                                           "<h3>Saved. The watch restarts and connects to " + htmlEscape(ssid) + ".</h3>");
   delay(1500);
   ESP.restart();
 }
 
 void startPortal() {
-  snprintf(apName, sizeof(apName), "MarsEVA-Reloj-%04X", (uint16_t)(ESP.getEfuseMac() >> 32));
+  snprintf(apName, sizeof(apName), "ARES-Watch-%04X", (uint16_t)(ESP.getEfuseMac() >> 32));
   WiFi.mode(WIFI_AP_STA);  // AP para el portal + STA para poder buscar redes
   WiFi.softAP(apName);
   web.on("/", handlePortal);
@@ -252,7 +262,7 @@ bool connectSaved() {
   WiFi.begin(wifiSsid.c_str(), pass.c_str());
   const uint32_t t0 = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - t0 < WIFI_CONNECT_MS) {
-    drawMsg("CONECTANDO WIFI", wifiSsid.substring(0, 21).c_str(), String((WIFI_CONNECT_MS - (millis() - t0)) / 1000).c_str());
+    drawMsg("CONNECTING WIFI", wifiSsid.substring(0, 21).c_str(), String((WIFI_CONNECT_MS - (millis() - t0)) / 1000).c_str());
     delay(250);
   }
   if (WiFi.status() != WL_CONNECTED) return false;
@@ -264,16 +274,20 @@ bool connectSaved() {
 
 void setupNet() {
   pinMode(BTN_SOS, INPUT_PULLUP);
-  if (digitalRead(BTN_SOS) == LOW) {  // botón apretado al encender: borrar la red guardada
-    drawMsg("BORRANDO WIFI", "suelta el boton");
+  if (digitalRead(BTN_SOS) == LOW) {  // botón apretado al encender: borrar la red guardada y configurar otra
+    drawMsg("ERASING WIFI", "release the button");
     prefs.begin("wifi", false); prefs.clear(); prefs.end();
     while (digitalRead(BTN_SOS) == LOW) delay(20);
+    startPortal();
+  } else {
+    connectSaved();  // sin red guardada (o si falla) queda solo Bluetooth + USB
   }
-  if (!connectSaved()) startPortal();
+  SerialBT.begin("ARES-Watch");
 }
 
 void sendButton(const char* msg) {  // a la base: por USB y, si hay WiFi, por UDP (3 veces: UDP puede perder paquetes)
   Serial.println(msg);
+  if (SerialBT.hasClient()) SerialBT.println(msg);
   if (netMode != NET_STA || !serverPort || WiFi.status() != WL_CONNECTED) return;
   for (int i = 0; i < 3; i++) {
     udp.beginPacket(serverIp, serverPort); udp.print(msg); udp.print('\n'); udp.endPacket();
@@ -435,19 +449,22 @@ void loop() {
   if (!dataOk) {
     oled.setFont(u8g2_font_6x10_tr);
     if (netMode == NET_AP) {  // sin WiFi guardado: instrucciones para configurarlo
-      oled.drawStr(0, 10, "CONFIGURAR WIFI:");
-      oled.drawStr(0, 24, "conecta el celular a");
+      oled.drawStr(0, 10, "WIFI SETUP:");
+      oled.drawStr(0, 24, "join with your phone");
       oled.drawStr(0, 36, apName);
-      oled.drawStr(0, 50, "y abre 192.168.4.1");
+      oled.drawStr(0, 50, "open 192.168.4.1");
       oled.setFont(u8g2_font_4x6_tr);
-      oled.drawStr(0, 62, "(o usa el cable USB)");
+      oled.drawStr(0, 62, "(or use the USB cable)");
     } else if (netMode == NET_STA) {
       oled.drawStr(14, 14, "MARS EVA NAV");
-      oled.drawStr(0, 30, WiFi.status() == WL_CONNECTED ? ("WiFi " + WiFi.localIP().toString()).c_str() : "WiFi reconectando");
-      oled.drawStr(0, 46, st.everRx ? "SIN DATOS TABLET" : "ESPERANDO SERVIDOR");
+      oled.drawStr(0, 30, WiFi.status() == WL_CONNECTED ? ("WiFi " + WiFi.localIP().toString()).c_str() : "WiFi reconnecting");
+      oled.drawStr(0, 46, st.everRx ? "NO TABLET DATA" : "WAITING SERVER");
     } else {
-      oled.drawStr(14, 24, "MARS EVA NAV");
-      oled.drawStr(8, 42, st.everRx ? "SIN DATOS TABLET" : "ESPERANDO USB...");
+      oled.drawStr(14, 14, "MARS EVA NAV");
+      oled.drawStr(0, 30, SerialBT.hasClient() ? "Bluetooth linked" : "Bluetooth: ARES-Watch");
+      oled.drawStr(0, 46, st.everRx ? "NO TABLET DATA" : "WAITING SERVER");
+      oled.setFont(u8g2_font_4x6_tr);
+      oled.drawStr(0, 62, "(or USB cable)");
     }
   } else {
     drawCompass(31, 32, 30);
@@ -466,7 +483,7 @@ void loop() {
     oled.setDrawColor(1);
     oled.drawFrame(4, 18, 120, 28);
     oled.setFont(u8g2_font_6x10_tr);
-    oled.drawStr(10, 30, (st.flags & F_SOS) ? "MANTENER:CANCELAR" : "MANTENER: SOS");
+    oled.drawStr(10, 30, (st.flags & F_SOS) ? "HOLD: CANCEL" : "HOLD: SOS");
     oled.drawFrame(10, 34, 108, 8);
     oled.drawBox(12, 36, (int)(104 * hold), 4);
   }

@@ -91,7 +91,7 @@
     "elevation_min_m": -3731.021240234375,
     "elevation_max_m": -3484.366455078125,
     "relief_m": 246.65478515625,
-    "slope_mean_deg": 13.598789492396296,
+    "slope_mean_deg": 13.598789492396298,
     "slope_max_deg": 73.8830357388352,
     "cells_total": 1000000,
     "cells_nodata": 0,
@@ -102,7 +102,7 @@
     "radiation_dose_rate_msv_h": 0.03275326170655567,
     "mean_surface_temp_c": 1.657760000000053,
     "ambient_pressure_pa": 750.0,
-    "mean_thermal_inertia": 139.5167236328125,
+    "mean_thermal_inertia": 139.51673889160156,
     "terrain_traction": "low/loose"
   }
 }

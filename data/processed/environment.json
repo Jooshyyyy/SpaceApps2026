@@ -15,10 +15,10 @@
     },
     "surface_model": {
       "calibrated_baseline_msv_per_h": 0.03275326170655567,
-      "mean_exposure_factor": 0.8148199319839478,
+      "mean_exposure_factor": 0.814819872379303,
       "min_exposure_factor": 0.0,
       "max_exposure_factor": 1.0,
-      "mean_svf": 0.9687052965164185,
+      "mean_svf": 0.9687051773071289,
       "min_svf": 0.5392274856567383,
       "max_svf": 1.0
     },
@@ -35,7 +35,7 @@
   "thermal_and_substrate": {
     "source": "MGS TES (Putzig & Mellon 2007)",
     "metrics": {
-      "mean_daytime_ti": 139.5167236328125,
+      "mean_daytime_ti": 139.51673889160156,
       "min_daytime_ti": 125.8560562133789,
       "max_daytime_ti": 151.9037322998047,
       "regional_nighttime_ti": 235.46665954589844,
