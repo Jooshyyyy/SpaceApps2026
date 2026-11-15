@@ -57,9 +57,20 @@ double step_cost(const Grid& grid, int row, int col, int next_row, int next_col,
             radiation = params.radiation_weight * static_cast<double>(exposure);
         }
     }
+    double soil_penalty = 0.0;
+    if (grid.has_thermal_inertia() && params.soil_weight > 0.0) {
+        const float ti = grid.thermal_inertia[next];
+        if (std::isfinite(ti) && ti > 0.0f) {
+            // Duricrust/bedrock (TI >= 300 SI) provides firm footing (0 penalty).
+            // Loose dust (TI < 300 SI) incurs slip and sinkage penalty.
+            if (ti < 300.0f) {
+                soil_penalty = params.soil_weight * static_cast<double>((300.0f - ti) / 200.0f);
+            }
+        }
+    }
     const double dz = static_cast<double>(next_z) - static_cast<double>(here_z);
     const double climb = dz > 0.0 ? dz * params.climb_weight : 0.0;
-    return distance * (terrain + radiation) + climb;
+    return distance * (terrain + radiation + soil_penalty) + climb;
 }
 
 } // namespace
@@ -160,6 +171,25 @@ Route find_route(const Grid& grid, int start_row, int start_col, int goal_row, i
             route.descent_m -= dz;
         }
     }
+
+    double rad_sum = 0.0;
+    double ti_sum = 0.0;
+    int ti_count = 0;
+    for (int cell : route.cells) {
+        if (grid.has_radiation()) {
+            const float r = grid.radiation[static_cast<std::size_t>(cell)];
+            if (std::isfinite(r)) rad_sum += static_cast<double>(r);
+        }
+        if (grid.has_thermal_inertia()) {
+            const float t = grid.thermal_inertia[static_cast<std::size_t>(cell)];
+            if (std::isfinite(t)) {
+                ti_sum += static_cast<double>(t);
+                ++ti_count;
+            }
+        }
+    }
+    route.total_radiation = rad_sum;
+    route.mean_thermal_inertia = ti_count > 0 ? (ti_sum / ti_count) : 0.0;
     route.elapsed_ms = elapsed_ms(began);
     return route;
 }

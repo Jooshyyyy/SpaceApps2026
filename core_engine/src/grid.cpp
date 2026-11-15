@@ -134,6 +134,15 @@ Grid load_grid(const std::string& dir) {
             grid.radiation = decode<float>(read_binary(radiation_path, float_bytes), "radiation.bin");
         }
     }
+
+    const std::string thermal_inertia_path = dir + "/thermal_inertia.bin";
+    {
+        std::ifstream probe(thermal_inertia_path, std::ios::binary);
+        if (probe.good()) {
+            probe.close();
+            grid.thermal_inertia = decode<float>(read_binary(thermal_inertia_path, float_bytes), "thermal_inertia.bin");
+        }
+    }
     return grid;
 }
 

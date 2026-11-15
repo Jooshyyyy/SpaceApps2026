@@ -11,7 +11,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-ENGINE = ROOT / "eva_engine"
+ENGINE = ROOT / "eva_engine.exe" if (ROOT / "eva_engine.exe").exists() else ROOT / "eva_engine"
 
 
 def invoke(*args):

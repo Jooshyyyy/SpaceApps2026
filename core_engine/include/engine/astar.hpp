@@ -15,7 +15,8 @@ namespace eva {
 struct RouteParams {
     double slope_weight = 4.0;      // terrain penalty scale at cost 254
     double climb_weight = 5.0;      // cost per metre climbed
-    double radiation_weight = 0.0;  // multiplier per unit of radiation exposure
+    double radiation_weight = 1.0;  // multiplier per unit of radiation exposure
+    double soil_weight = 1.0;       // penalty for loose regolith / low thermal inertia
     bool allow_diagonal = true;
     bool no_corner_cutting = true;  // never slip diagonally between two walls
 };
@@ -29,6 +30,8 @@ struct Route {
     double length_m = 0.0;    // horizontal length
     double climb_m = 0.0;     // total ascent
     double descent_m = 0.0;   // total descent
+    double total_radiation = 0.0; // accumulated radiation factor along path
+    double mean_thermal_inertia = 0.0; // mean thermal inertia SI units along path
     std::size_t expanded = 0;
     double elapsed_ms = 0.0;
 };

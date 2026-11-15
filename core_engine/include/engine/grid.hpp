@@ -39,6 +39,7 @@ struct Grid {
     std::vector<float> slope;       // degrees, row-major, NaN = unknown
     std::vector<uint8_t> cost;      // 0 no data, 1..254 traversable, 255 wall
     std::vector<float> radiation;   // optional, empty when layer 1 omits it
+    std::vector<float> thermal_inertia; // optional, SI units J/(m^2 K s^0.5)
 
     int rows() const { return meta.rows; }
     int cols() const { return meta.cols; }
@@ -53,6 +54,7 @@ struct Grid {
         return row >= 0 && col >= 0 && row < meta.rows && col < meta.cols;
     }
     bool has_radiation() const { return !radiation.empty(); }
+    bool has_thermal_inertia() const { return !thermal_inertia.empty(); }
 
     // A cell is traversable when it carries a usable cost and a finite
     // elevation. Cost 0 means "no data" and 255 means "impassable"; neither is

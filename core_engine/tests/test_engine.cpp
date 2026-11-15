@@ -293,6 +293,24 @@ void test_astar_uses_radiation_only_when_supplied() {
     CHECK_NEAR(without_layer.length_m, 4.0, 1e-6);
 }
 
+void test_astar_prefers_firm_soil_over_loose_dust() {
+    eva::Grid grid = make_grid(3, 5);
+    grid.thermal_inertia.assign(grid.cells(), 350.0f); // firm bedrock
+    // Middle row has loose, low thermal inertia dust (100 SI)
+    for (int col = 1; col <= 3; ++col) grid.thermal_inertia[grid.index(1, col)] = 100.0f;
+
+    eva::RouteParams params = eva::default_route_params();
+    params.soil_weight = 3.0;
+    const eva::Route route = eva::find_route(grid, 1, 0, 1, 4, params);
+    CHECK(route.found);
+    bool traversed_loose_dust = false;
+    for (int cell : route.cells) {
+        if (grid.thermal_inertia[static_cast<std::size_t>(cell)] < 200.0f) traversed_loose_dust = true;
+    }
+    CHECK(!traversed_loose_dust);
+    CHECK_NEAR(route.length_m, 2.0 + 2.0 * std::sqrt(2.0), 1e-6);
+}
+
 void test_astar_start_equals_goal() {
     const eva::Grid grid = make_grid(3, 3);
     const eva::Route route = eva::find_route(grid, 1, 1, 1, 1, eva::default_route_params());
@@ -398,6 +416,7 @@ int main() {
     test_astar_never_cuts_a_corner();
     test_astar_treats_nodata_as_a_wall();
     test_astar_uses_radiation_only_when_supplied();
+    test_astar_prefers_firm_soil_over_loose_dust();
     test_astar_start_equals_goal();
     test_plss_flat_leg();
     test_plss_steep_leg_costs_more();

@@ -42,15 +42,25 @@ LegSim simulate_leg(const Grid& grid, const Route& route, const PlssConfig& conf
         const double distance = std::sqrt(dr * dr + dc * dc);
 
         const double fraction = slope_fraction(grid, b);
-        const double speed = config.walk_speed_mps -
-                             (config.walk_speed_mps - config.walk_speed_slope_mps) * fraction;
+        double soil_drag = 0.0;
+        if (grid.has_thermal_inertia()) {
+            const float ti = grid.thermal_inertia[static_cast<std::size_t>(b)];
+            if (std::isfinite(ti) && ti < 300.0f && ti > 0.0f) {
+                soil_drag = static_cast<double>((300.0f - ti) / 300.0f);
+            }
+        }
+        const double soil_speed_mult = 1.0 / (1.0 + 0.20 * soil_drag);
+        const double speed = (config.walk_speed_mps -
+                             (config.walk_speed_mps - config.walk_speed_slope_mps) * fraction) * soil_speed_mult;
         if (speed <= 0.0) continue; // a zero speed would divide by zero
         const double dt = distance / speed;
 
         leg.time_s += dt;
-        leg.o2_kg += (config.o2_rate_kg_per_h + config.o2_rate_slope_kg_per_h * fraction) * dt / 3600.0;
+        leg.o2_kg += (config.o2_rate_kg_per_h + config.o2_rate_slope_kg_per_h * fraction) *
+                     (1.0 + 0.15 * soil_drag) * dt / 3600.0;
         leg.batt_wh +=
-            (config.battery_draw_w + config.battery_draw_slope_w * fraction) * dt / 3600.0;
+            (config.battery_draw_w + config.battery_draw_slope_w * fraction) *
+            (1.0 + 0.15 * soil_drag) * dt / 3600.0;
         leg.dose_msv += config.dose_rate_msv_per_h * radiation_factor(grid, b) * dt / 3600.0;
         leg.distance_m += distance;
 
