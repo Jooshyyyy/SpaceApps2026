@@ -1,9 +1,12 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ARES · Mars Navigation Map</title>
-<link rel="icon" href="logo_ares.png">
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link rel="icon" href="icons/ares-192.png">
+<link rel="manifest" href="manifest.webmanifest"><meta name="theme-color" content="#120c0a">
+<link rel="apple-touch-icon" href="icons/ares-192.png"><meta name="mobile-web-app-capable" content="yes">
+<script>if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{})) // app instalable</script>
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+<script src="vendor/leaflet/leaflet.js"></script>
 <style>
 :root{--txt:#f4f6fa;--mut:rgba(235,240,250,.8);--ok:#32d74b;--warn:#ffd60a;--bad:#ff453a;--acc:#64d2ff;
  --glass:linear-gradient(145deg,rgba(58,62,74,.58),rgba(14,16,22,.50));--edge:rgba(255,255,255,.28);--blur:blur(24px) saturate(185%)}
@@ -73,6 +76,8 @@ body{margin:0;color:var(--txt);text-shadow:0 1px 2px rgba(0,0,0,.35);font:14px/1
 .vis .card:has(#bret){display:none} /* órdenes de la base: solo el operador */
 .brk{display:none}
 .prof canvas{width:100%;height:100%;display:block;position:relative}
+.sci{margin:0 0 8px;padding:8px 10px;border-radius:12px;background:rgba(48,209,88,.10);border:1px solid rgba(48,209,88,.28);font-size:12.5px;line-height:1.4}.sci:empty{display:none}.sci b{color:#30d158}
+.pano{height:150px;border-radius:14px;overflow-x:auto;overflow-y:hidden;background:#000;scrollbar-width:thin;-webkit-overflow-scrolling:touch}.pano img{height:100%;width:auto;display:block}
 .pov{height:110px;border-radius:14px;overflow:hidden;position:relative;background:#000;z-index:0;isolation:isolate}
 .sosbtn{position:absolute;z-index:850;left:14px;bottom:196px;width:84px;height:84px;border-radius:50%;border:none;cursor:pointer;padding:5px;
  background:conic-gradient(#fff calc(var(--p,0)*1turn),rgba(255,255,255,.25) 0);box-shadow:0 8px 24px rgba(0,0,0,.5);touch-action:none;user-select:none;-webkit-user-select:none}
@@ -171,7 +176,7 @@ body.vis{overflow:hidden}.vis .foot{display:none} /* la rueda del mouse no mueve
 .sidemin .compass{right:14px}.sidemin .leaflet-top.leaflet-right{right:6px} /* brújula y capas a la esquina */.sidemin .side>.sidetab+.card{display:block}
 @media (max-width:820px){.sidemin .legend{bottom:var(--sideh,240px)}.sidemin .sosbtn{bottom:calc(var(--sideh,240px) + 44px)}}
 </style>
-<script type="importmap">{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js","three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}</script>
+<script type="importmap">{"imports":{"three":"./vendor/three/build/three.module.js","three/addons/":"./vendor/three/examples/jsm/"}}</script>
 </head><body>
 <div class="splash" id="splash" role="img" aria-label="ARES · Mars Navigation Map"><img src="logo_ares.png" alt="ARES · Mars Navigation Map"></div>
 <script>(()=>{const sp=document.getElementById('splash'),t0=performance.now(),hide=()=>sp.classList.add('out');sp.addEventListener('pointerdown',hide);
@@ -208,6 +213,7 @@ body.vis{overflow:hidden}.vis .foot{display:none} /* la rueda del mouse no mueve
     </div></div>
    <div class="card"><h3>Science target</h3>
     <div class="mut tgthint" style="margin-bottom:6px">Tap the map or an orange Curiosity point to choose another stop, even during the EVA</div>
+    <div class="sci" id="sci"></div>
     <div class="stops" id="stops"></div><div class="plan" id="planinfo"></div></div>
    <div class="card"><h3>Environment · NASA data</h3>
     <div class="grid2">
@@ -216,8 +222,12 @@ body.vis{overflow:hidden}.vis .foot{display:none} /* la rueda del mouse no mueve
      <div class="kv"><span>Air temp · MSL REMS</span><b id="envt" style="font-size:16px">—</b></div>
      <div class="kv"><span>Ground · MGS TES</span><b id="envsoil" style="font-size:16px">—</b></div>
     </div>
-    <div class="mut" style="margin-top:8px" id="envhere">At the astronaut's position: —</div></div>
-   <div class="card"><h3>Target view</h3><div class="pov" id="pov"></div>
+    <div class="mut" style="margin-top:8px" id="envhere">At the astronaut's position: —</div>
+    <div class="hint" style="margin-top:6px;font-size:11px">Data: HiRISE 1 m DEM &amp; imagery · MSL RAD sol 805 (2014) · MSL REMS sol 1 (2012) · MGS TES thermal inertia (Putzig &amp; Mellon 2007) · Curiosity traverse &amp; Navcam, May–Jul 2025</div></div>
+   <div class="card"><h3>Target view</h3>
+    <div class="pano" id="pano" style="display:none"><img id="panoimg" alt="Curiosity Navcam 360-degree view at this stop" loading="lazy"></div>
+    <div class="mut" style="margin:4px 0 8px;display:none" id="panotxt"></div>
+    <div class="pov" id="pov"></div>
     <div class="mut" style="margin-top:6px" id="povtxt"></div></div>
    <div class="gocard btns"><button class="go" id="go">▶ Start EVA</button></div>
   </div>
@@ -273,7 +283,7 @@ const ROLB=new URLSearchParams(location.search).get('rol')==='base';
 const OBS=VIS||ROLB; // pantalla que solo observa (la base manda órdenes; el visitante, ni eso)
 if(OBS)document.body.classList.add('obs');if(VIS)document.body.classList.add('vis');
 // ---------- mapa 2D ----------
-const T='https://trek.nasa.gov/tiles/Mars/EQ/',Q='/1.0.0/default/default028mm/{z}/{y}/{x}.png';
+const T='tiles/Mars/EQ/',Q='/1.0.0/default/default028mm/{z}/{y}/{x}.png'; // vía el servidor local (caché): funciona sin internet en la tablet
 const map=L.map('map',{crs:L.CRS.EPSG4326,attributionControl:false,maxZoom:19});
 L.tileLayer(T+'curiosity_hirise_mosaic'+Q,{maxNativeZoom:16,maxZoom:19}).addTo(map);
 const B=[[bb.south,bb.west],[bb.north,bb.east]];map.fitBounds(B);
@@ -360,7 +370,19 @@ function select(id){if(OBS)return;const s=allStops().find(x=>x.id===id);if(!s)re
 function drawRoute(){routeLayer.clearLayers();const p=phase==='idle'?stop.path:path;
   for(let i=1;i<p.length;i++){const s=p[i][3];L.polyline([ll2(p[i-1]),ll2(p[i])],{color:s>15?'#ff9f0a':s>8?'#ffd60a':'#30d158',weight:5,opacity:.95}).addTo(routeLayer)}
   pov.setView(stop.ll,16);povMark.setLatLng(stop.ll);
-  $('povtxt').textContent=stop.sol?`Curiosity passed here on sol ${stop.sol}${stop.site?' (site '+stop.site+')':''}. HiRISE orbital view.`:'Point chosen by the astronaut. HiRISE orbital view.'}
+  $('povtxt').textContent=stop.sol?`Curiosity passed here on sol ${stop.sol}${stop.site?' (site '+stop.site+')':''}. HiRISE orbital view.`:'Point chosen by the astronaut. HiRISE orbital view.';
+  showScience(stop.sol)}
+// ---------- ciencia de cada parada (blog de la misión Curiosity, NASA) + foto real de superficie ----------
+const SCI={ // sol -> objetivo científico en la parada; panorámica = 12 fotos Navcam de Curiosity en ese mismo lugar
+  4530:{t:'Honeycomb fractures · boxwork approach',d:'Polygonal fractures with centimetre-tall ridges, like a honeycomb. Compare a ridge with a polygon centre (Curiosity measured “Orosco Ridge” and “Box Canyon” with APXS) to learn how and when the boxwork formed.'},
+  4544:{t:'Inside the boxwork',d:'Criss-crossing fracture ridges big enough to see from orbit. Brush the rock and measure it (Curiosity used the DRT brush, APXS, MAHLI and ChemCam). The fractures may record water that flowed through the crust long ago.'},
+  4582:{t:'Fractured blocks and a frost-trap sand patch',d:'Fractured loose blocks (ChemCam target “Lasana”) next to a sand patch that can collect early-morning frost in winter. Watch for dust devils and log wind and temperature (REMS).'},
+  4612:{t:'Boxwork ridge overlook',d:'From the ridge, survey the ridge-and-hollow terrain in 360° and measure the bedrock with and without its dust coat (Curiosity: “Yura Tuff” and “Tipnis”, APXS + MAHLI).'}};
+let sciSol=-1;
+function showScience(sol){if(sol===sciSol)return;sciSol=sol;const k=SCI[sol];
+  $('sci').innerHTML=k?`<b>🔬 Science goal · ${k.t}</b><br>${k.d}`:(sol?`<b>🔬 Science goal</b><br>Curiosity drove here on sol ${sol}. Image the bedrock and look for fractures and veins.`:'');
+  $('pano').style.display=$('panotxt').style.display=k?'':'none';
+  if(k){$('panoimg').src=`pov/sol${sol}.jpg`;$('panotxt').textContent=`Surface view: what you will see here. Curiosity Navcam 360°, sol ${sol} (raw images, NASA/JPL-Caltech). Scroll sideways →`}}
 renderStops();
 $('stops').onchange=e=>select(e.target.value);
 async function startEVA(){if(phase!=='idle')return;phase='wait';wantGoal={row:stop.row,col:stop.col};walked=[ref];met=0;rev=null;plan=null;
@@ -437,7 +459,7 @@ function render(){if(VIS){renderMirror(obsLast);return}
   drawProfile(p,pos);drawWatch(pos,next,o,b,ttr,fl);drawCompass(pos,next);
   const wp=watchPacket(pos,next,o,b,ttr);drawOled(wp);sendUSB(wp);
   if(mode==='3d'&&window.V3D)V3D.update(pos,p,walked);
-  lastSnap={phase,met,o,b,dose,ttr,pos,next,wp,prof:p,fl,dest:destLabel(),stateTxt:stateTxt(),walked:walked.concat([pos]),route:(phase==='idle'?stop.path:path).map(ll2),
+  lastSnap={phase,met,o,b,dose,ttr,pos,next,wp,prof:p,fl,dest:destLabel(),sol:stop.sol||null,stateTxt:stateTxt(),walked:walked.concat([pos]),route:(phase==='idle'?stop.path:path).map(ll2),
     planned:phase==='idle',sos,sosAck,busOk,storm,rad,comms,live:true,watchTxt:$('bwatch').textContent};
   renderBase(lastSnap)}
 let lastSnap=null;
@@ -582,6 +604,7 @@ function renderMirror(S){if(!S)return;
   $('tsostxt').innerHTML=S.sos?(S.sosAck?'BASE OK<small>SOS</small>':'SENT<small>SOS</small>'):'SOS<small>READ ONLY</small>';
   $('link').className='pill '+(S.comms?'warn':'ok');$('link').textContent=S.comms?'NO LINK · AUTONOMOUS MODE':'HABITAT LINK OK';
   $('state').textContent=S.stateTxt;$('state').className='pill '+(S.phase==='evac'?'bad':'');
+  showScience(['ret','evac','done'].includes(S.phase)?null:S.sol);
   $('planinfo').innerHTML='<b>Destination:</b> '+(['ret','evac','done'].includes(S.phase)?'Habitat':S.dest)+'<br><span class="hint">Only the operator picks the stop and controls the EVA.</span>';
   astro.setLatLng(S.pos);trail.setLatLngs(S.walked||[]);
   const p=S.prof||[],key=p.length+':'+(p[0]||'')+':'+(p[p.length-1]||'');
@@ -749,7 +772,7 @@ async function texture(){ // mosaico HiRISE z16 de Mars Trek recortado a la zona
   const big=document.createElement('canvas');big.width=(c1-c0+1)*256;big.height=(r1-r0+1)*256;const g=big.getContext('2d');g.fillStyle='#6b5040';g.fillRect(0,0,big.width,big.height);
   const jobs=[];for(let r=r0;r<=r1;r++)for(let c=c0;c<=c1;c++)jobs.push(new Promise(ok=>{const im=new Image();im.crossOrigin='anonymous';
     im.onload=()=>{g.drawImage(im,(c-c0)*256,(r-r0)*256);ok()};im.onerror=ok;
-    im.src=`https://trek.nasa.gov/tiles/Mars/EQ/curiosity_hirise_mosaic/1.0.0/default/default028mm/${z}/${r}/${c}.png?cors=1`}));
+    im.src=`tiles/Mars/EQ/curiosity_hirise_mosaic/1.0.0/default/default028mm/${z}/${r}/${c}.png`}));
   await Promise.all(jobs);
   const x0=((b.west+180)/s-c0)*256,x1=((b.east+180)/s-c0)*256,y0=((90-b.north)/s-r0)*256,y1=((90-b.south)/s-r0)*256;
   const out=document.createElement('canvas');out.width=out.height=1024;out.getContext('2d').drawImage(big,x0,y0,x1-x0,y1-y0,0,0,1024,1024);

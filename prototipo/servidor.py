@@ -15,6 +15,8 @@ Solo librería estándar.
 Uso:  python3 servidor.py [--backend ../SpaceApps2026] [--port 8791] [--tty /dev/ttyUSB0]
 """
 import argparse
+import mimetypes
+import re as _re
 import gzip
 from array import array
 import urllib.error
@@ -558,7 +560,14 @@ def mirror_loop(base: str, token: str):
                 print("espejo: no se pudo publicar en la nube:", exc, flush=True)
 
 
-STATIC = {"/app.html", "/mission.json", "/logo_ares.png", "/oled_logo.png"}  # lo único que se sirve de esta carpeta
+mimetypes.add_type("application/manifest+json", ".webmanifest")
+VENDOR_DIR = Path(__file__).resolve().parent / "vendor"  # Leaflet y three.js servidos desde la laptop (sin internet en la tablet)
+VENDOR = {"/vendor/" + str(p.relative_to(VENDOR_DIR)) for p in VENDOR_DIR.rglob("*") if p.is_file()} if VENDOR_DIR.is_dir() else set()
+TILE_DIR = Path(__file__).resolve().parent / "tile_cache"
+TILE_RE = _re.compile(r"^/tiles/Mars/EQ/curiosity_hirise_mosaic/1\.0\.0/default/default028mm/(\d{1,2})/(\d{1,6})/(\d{1,6})\.png$")
+STATIC = {"/app.html", "/mission.json", "/logo_ares.png", "/oled_logo.png",
+          "/manifest.webmanifest", "/sw.js", "/icons/ares-192.png", "/icons/ares-512.png",  # app instalable (PWA)
+          "/pov/sol4530.jpg", "/pov/sol4544.jpg", "/pov/sol4582.jpg", "/pov/sol4612.jpg"}  # + panorámicas Navcam de Curiosity  # lo único que se sirve de esta carpeta
 TOKEN_FILE = HERE / ".token_operador"  # no se sirven ni se suben a git
 WATCH_TOKEN_FILE = HERE / ".token_reloj"
 OP_COOKIE = "ares_op"
@@ -714,10 +723,45 @@ def make_handler(serial: SerialPort, bus: BusClient, data_dir: Path, busproc: "B
                 self.send_header("Cache-Control", "no-store")
             super().end_headers()
 
+        def _tile(self, path, m):
+            f = TILE_DIR.joinpath(*m.groups()).with_suffix(".png")
+            if not f.exists():
+                try:
+                    req = urllib.request.Request("https://trek.nasa.gov" + path, headers={"User-Agent": "ARES-prototype"})
+                    data = urllib.request.urlopen(req, timeout=15).read()
+                except (urllib.error.URLError, OSError):
+                    return self._reply(404, {"error": "tile not available"})
+                f.parent.mkdir(parents=True, exist_ok=True)
+                tmp = f.with_suffix(".tmp")
+                tmp.write_bytes(data)
+                tmp.replace(f)
+            body = f.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Cache-Control", "public, max-age=86400")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _vendor(self, path):
+            body = (VENDOR_DIR / path[len("/vendor/"):]).read_bytes()
+            ctype = {".js": "text/javascript", ".css": "text/css", ".png": "image/png"}.get(Path(path).suffix, "application/octet-stream")
+            self.send_response(200)
+            self.send_header("Content-Type", ctype + ("; charset=utf-8" if ctype.startswith("text") else ""))
+            self.send_header("Cache-Control", "public, max-age=86400")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
         def do_GET(self):
             if self._limited():
                 return
             path, _, query = self.path.partition("?")
+            m = TILE_RE.match(path)
+            if m:  # mosaico HiRISE de Mars Trek: se descarga una vez y queda en caché local
+                return self._tile(path, m)
+            if path in VENDOR:
+                return self._vendor(path)
             if path.startswith("/op/"):  # link del operador: guarda el token en una cookie y entra
                 tok, _, dest = path[4:].partition("/")
                 if not hmac.compare_digest(tok.encode(), token.encode()):

@@ -46,11 +46,26 @@ astronaut can read at a glance.
   astronaut. Select your destination", "Halfway there", "You are almost there",
   "Heading back to the habitat". Each cue has several variants and a cooldown,
   so the voice never nags.
-- **Science targets.** The stops are real Curiosity 2025 waypoints from NASA.
-  The astronaut can also pick any point on the map, even mid-EVA, and the route
-  is recomputed from where they stand.
-- **2D and 3D views.** A slope-hazard overlay on HiRISE imagery, plus a 3D
-  terrain view at true 1:1 elevation.
+- **Science on every stop: the 2025 boxwork campaign.** The four stops are real
+  places Curiosity visited in May–July 2025 while it explored the *boxwork*
+  formations of Mount Sharp. Each stop shows a science goal based on NASA's
+  Curiosity mission blog for that sol. The goals cover honeycomb fractures, the
+  boxwork ridges that may record ancient water flow, fractured blocks next to a
+  frost-trap sand patch, and a ridge overlook. The astronaut can also pick any
+  point on the map, even mid-EVA, and the route is recomputed from where they
+  stand.
+- **Know what you'll see before you get there.** For each stop, a scrollable
+  360° panorama stitched from 12 raw Navcam images Curiosity took at that exact
+  position sits next to the HiRISE orbital view.
+- **Layered NASA data on the map.** Toggle terrain slope, radiation exposure
+  (sheltered vs. open sky) and loose-dust risk (thermal inertia) on the map. An
+  *Environment* card shows the RAD dose rate, REMS pressure and temperature,
+  TES ground type, and the values at the astronaut's current position.
+- **2D and 3D views.** HiRISE imagery with hazard overlays, plus a 3D terrain
+  view at true 1:1 elevation that you can fly around freely, like Google Earth.
+- **Works without internet on the tablet.** The laptop serves the map libraries
+  and a cache of the HiRISE map tiles over the USB cable. A habitat crew far
+  from Earth can't rely on the cloud either.
 
 ## The three screens
 
@@ -86,21 +101,24 @@ Astronaut tablet (browser) ◄──────────► ARES Watch (ESP3
         └── live state mirror ──► Render (public visitor view)
 ```
 
-None of the layers uses a third-party library. The ingest step reads the 5.4 GB
-BigTIFF directly with no GDAL or rasterio. The engine and the bus are plain C++20
-built with Makefiles. The server and the watch bridge use only the Python
-standard library.
+The backend has no third-party dependencies. The ingest step reads the 5.4 GB
+BigTIFF directly, without GDAL or rasterio. The engine and the bus are plain
+C++20 built with Makefiles. The server and the watch bridge use only the Python
+standard library. The web interface uses Leaflet 1.9.4 (2D map) and three.js
+0.160 (3D terrain), bundled in `prototipo/vendor/` so the tablet works offline.
 
 ## Data sources
 
-| Data | Source | Used for |
-|---|---|---|
-| HiRISE DEM of Gale crater, 1 m/pixel (`Gale_DEM_SMG_1m.tif`) | NASA / USGS | Elevation and slope for the 1 km × 1 km area of interest |
-| MSL RAD, Sol 805 | NASA PDS (Curiosity) | Calibrated radiation baseline (≈0.033 mSv/h) |
-| MSL REMS, Sol 1 | NASA PDS (Curiosity) | Ambient pressure and temperature |
-| MGS TES thermal inertia | NASA PDS | Loose-soil (sinkage) risk |
-| Curiosity 2025 traverse waypoints | NASA | Real science stops |
-| HiRISE orbital imagery | NASA / University of Arizona | Map background and target views |
+| Data | Kind | Source | Time frame | Used for |
+|---|---|---|---|---|
+| HiRISE DEM of Gale crater, 1 m/pixel (`Gale_DEM_SMG_1m.tif`) | Topographic | NASA / USGS | — | Elevation, slope, routing cost, 3D terrain |
+| HiRISE orbital mosaic (via JPL Mars Trek) | Optical | NASA / JPL / University of Arizona | — | Map background, 3D texture, orbital target view |
+| MSL RAD, sol 805 | Radiation | NASA PDS (Curiosity) | 2014 | Calibrated dose baseline (≈33 µSv/h) combined with a sky-view model of terrain shielding |
+| MSL REMS, sol 1 | Atmospheric | NASA PDS (Curiosity) | 2012 | Ambient pressure (750 Pa) and temperature |
+| MGS TES thermal inertia (Putzig & Mellon 2007) | Thermal | NASA PDS | — | Loose-dust (sinkage) risk and walking drag |
+| Curiosity traverse waypoints | Mission | NASA / JPL | May–Jul 2025 | Real stops on the boxwork campaign |
+| Curiosity raw Navcam images | Surface imagery | NASA / JPL-Caltech raw images | sols 4530, 4544, 4582, 4612 | 360° "what you'll see" panorama at each stop |
+| Curiosity mission blog | Science context | NASA Science | sols 4529–4613 | Science goal at each stop |
 
 Area of interest: `curiosity-2025-eva-site`, 1000 × 1000 cells, about
 137.374–137.391° E and 4.792–4.809° S.
@@ -132,6 +150,11 @@ Then open:
   URL on the tablet.
 
 Only one astronaut page should be open at a time. That screen drives the watch.
+
+The tablet does not need internet. The server delivers the map libraries from
+`prototipo/vendor/` and the HiRISE map tiles through `/tiles/…`. Tiles are
+downloaded from Mars Trek once and kept in `prototipo/tile_cache/`, so open the
+page once on a connected computer before going offline.
 
 ### Public visitor view (how our demo runs)
 
@@ -179,6 +202,8 @@ arduino-cli compile --fqbn esp32:esp32:esp32:UploadSpeed=115200,PartitionScheme=
 | `communication/` | Layer 3: WebSocket Edge Bus (`eva_bus`), see its README |
 | `docs/` | Frozen formats: `ingest-format.md`, `telemetry-frame.md` |
 | `prototipo/` | Tablet / Mission Control web app, server, watch bridge, mission generator |
+| `prototipo/pov/` | 360° Navcam panoramas for each stop (stitched from Curiosity raw images) |
+| `prototipo/vendor/` | Leaflet and three.js, served locally for offline use |
 | `hardware/` | ESP32 watch firmware and wiring test sketches |
 | `Dockerfile` | Public visitor deployment |
 
@@ -188,9 +213,22 @@ arduino-cli compile --fqbn esp32:esp32:esp32:UploadSpeed=115200,PartitionScheme=
   tunable PLSS assumptions, not from real suit sensors.
 - Routing covers one 1 km × 1 km area of interest. Radiation is a calibrated
   surface model, not a live measurement.
+- Dust-storm and radiation-peak alerts are triggered from the simulation drawer
+  or by Mission Control for the demo. They are not a live space-weather feed.
+- Science goals summarize what Curiosity's team did at those places, from the
+  public mission blog. The panoramas are raw, uncalibrated Navcam frames joined
+  side by side, so exposure changes from frame to frame.
 - The full astronaut / watch / Mission Control loop has been exercised on our
   own hardware during development. It has not been validated as a flight-ready
   or field-tested system.
+
+## References for the science stops
+
+- Sols 4529–4531, "Honeycombs and Waffles… on Mars!": https://science.nasa.gov/blog/sols-4529-4531-honeycombs-and-waffles-on-mars/
+- Sol 4546, "Martian Jenga" (covers the sol 4544 plan): https://science.nasa.gov/blog/sol-4546-martian-jenga/
+- Sols 4582–4583, "A Rock and a Sand Patch": https://science.nasa.gov/blog/curiosity-blog-sols-4582-4583-a-rrock-and-a-sand-patch/
+- Sols 4611–4613, "Scenic Overlook": https://science.nasa.gov/blog/curiosity-blog-sols-4611-4613-scenic-overlook/
+- Raw images: NASA/JPL-Caltech, Mars Science Laboratory raw image archive.
 
 ## Acknowledgements
 

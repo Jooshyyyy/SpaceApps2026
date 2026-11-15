@@ -16,3 +16,4 @@ hardware
 prototipo/.token_*
 prototipo/qr
 prototipo/zona_antigua
+prototipo/tile_cache
