@@ -67,7 +67,11 @@ body{margin:0;color:var(--txt);text-shadow:0 1px 2px rgba(0,0,0,.35);font:14px/1
 .obs:not(.vis) .cap[data-v],.obs #usb,.obs #simbtn{display:none}
 .vispill{display:none}.vis .vispill{display:inline-flex}
 .vis #sosack,.vis #soscancel,.vis #bret,.vis #bstorm,.vis #brad{display:none}
-.vis #stops,.vis #tsos,.vis #go{pointer-events:none}.vis #stops{opacity:.6}
+.vis #stops,.vis #tsos,.vis #go{pointer-events:none}
+.vis .gocard,.vis #tsos:not(.on),.vis #stops,.vis .tgthint{display:none} /* visitante: sin controles ni instrucciones del operador */
+.vis .side{gap:8px}
+.vis .card:has(#bret){display:none} /* órdenes de la base: solo el operador */
+.brk{display:none}
 .prof canvas{width:100%;height:100%;display:block;position:relative}
 .pov{height:110px;border-radius:14px;overflow:hidden;position:relative;background:#000;z-index:0;isolation:isolate}
 .sosbtn{position:absolute;z-index:850;left:14px;bottom:196px;width:84px;height:84px;border-radius:50%;border:none;cursor:pointer;padding:5px;
@@ -117,13 +121,40 @@ body{margin:0;color:var(--txt);text-shadow:0 1px 2px rgba(0,0,0,.35);font:14px/1
 .oledwrap{padding:12px 14px;border-radius:20px;display:flex;flex-direction:column;align-items:center;gap:6px}
 #oled{width:512px;max-width:88vw;aspect-ratio:2;height:auto;image-rendering:pixelated;background:#000;border-radius:6px}
 .wnote{color:var(--mut);font-size:12px;max-width:360px;text-align:center;padding:8px 14px;border-radius:16px}
+/* celulares en vertical */
+@media (max-width:600px){
+ .top{flex-wrap:wrap;overflow:visible;row-gap:6px;padding:8px;border-radius:20px}
+ .top .sp,#fs{display:none}
+ .top h1{order:0}.vispill{order:1;font-size:11px}#snd,#simbtn,#usb{order:2}#snd{margin-left:auto}
+ .brk{display:block;order:3;flex-basis:100%;height:0}
+ .hidem{display:none}
+ .top .cap[data-v]{order:4;flex:1 1 0;min-width:0;padding:8px 4px;text-align:center;font-size:12.5px}
+ .hdr{padding:0 8px 0 14px;gap:6px}.hdr #link,.hdr #be{display:none}.hdr #state{margin-left:auto}
+ .side{height:44%}.legend{bottom:calc(44% + 24px);font-size:11px}.sosbtn{bottom:calc(44% + 66px);width:72px;height:72px}
+ .compass{width:74px;height:74px}.leaflet-top.leaflet-right{top:156px}
+ .kv b{font-size:20px}
+ .base{padding:10px;border-radius:22px;min-height:0}
+ .bhdr{flex-wrap:wrap;gap:6px;padding:0 2px}.bhdr h2{flex-basis:100%;font-size:15px}.bhdr .sp{display:none}
+ #bmap{height:300px}.blog{height:200px}
+ .sosban{font-size:13px;padding:10px 12px}
+ #oled{max-width:94vw}.watch{width:200px;height:200px}
+}
+/* celulares en horizontal (poca altura) */
+@media (max-height:500px) and (orientation:landscape){
+ .top{margin:4px 6px 0;padding:4px 8px}.cap{padding:5px 10px}
+ .stage{padding:6px}.tablet{height:calc(100dvh - 52px);min-height:0}
+ .prof,.legend{display:none}
+ .hdr{top:8px;height:40px}.vt{top:56px}.leaflet-top.leaflet-left{top:52px}
+ .side{top:56px;bottom:8px;width:280px}.compass{top:56px;right:296px;width:70px;height:70px}.leaflet-top.leaflet-right{top:132px;right:290px}
+ .sosbtn{bottom:12px;width:64px;height:64px}
+}
 </style>
 <script type="importmap">{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js","three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}</script>
 </head><body>
 <div class="splash" id="splash" role="img" aria-label="ARES · Mars Navigation Map"><img src="logo_ares.png" alt="ARES · Mars Navigation Map"></div>
 <script>(()=>{const sp=document.getElementById('splash'),hide=()=>sp.classList.add('out');setTimeout(hide,2600);sp.addEventListener('pointerdown',hide)})();</script>
-<div class="top glass"><h1>ARES</h1><span class="pill vispill" title="You are watching the live EVA. Only the operator can control it.">👁 Visitor · live</span>
- <button data-v="both" class="cap on">Tablet + Watch</button><button data-v="tablet" class="cap">Tablet</button><button data-v="watch" class="cap">Watch</button><button data-v="base" class="cap">🛰 Mission Control</button>
+<div class="top glass"><h1>ARES</h1><span class="pill vispill" title="You are watching the live EVA. Only the operator can control it.">👁 Visitor · live</span><span class="brk"></span>
+ <button data-v="both" class="cap on">Tablet + Watch</button><button data-v="tablet" class="cap">Tablet</button><button data-v="watch" class="cap">Watch</button><button data-v="base" class="cap">🛰 <span class="hidem">Mission </span>Control</button>
  <span class="sp"></span>
  <button class="cap on" id="snd" title="Warning sounds">🔊 Sound</button><button class="cap" id="simbtn">⚙ Simulation</button><button class="cap" id="fs">⛶ Fullscreen</button><button class="cap usb" id="usb">⚡ Connect USB watch</button></div>
 <div class="simbox glass" id="simbox" style="display:none"><h3>Simulation · demo only</h3>
@@ -152,7 +183,7 @@ body{margin:0;color:var(--txt);text-shadow:0 1px 2px rgba(0,0,0,.35);font:14px/1
      <div class="kv"><span>Return time</span><b id="ttr">0:00</b></div>
     </div></div>
    <div class="card"><h3>Science target</h3>
-    <div class="mut" style="margin-bottom:6px">Tap the map or an orange Curiosity point to choose another stop, even during the EVA</div>
+    <div class="mut tgthint" style="margin-bottom:6px">Tap the map or an orange Curiosity point to choose another stop, even during the EVA</div>
     <div class="stops" id="stops"></div><div class="plan" id="planinfo"></div></div>
    <div class="card"><h3>Target view</h3><div class="pov" id="pov"></div>
     <div class="mut" style="margin-top:6px" id="povtxt"></div></div>
@@ -302,7 +333,7 @@ let ordSeq=null;async function pollOrders(){try{const r=await (await fetch('/eva
   if(ordSeq!==null)r.orders.forEach(o=>execOrder(o.type));ordSeq=r.seq}catch(e){}} // la primera lectura solo se pone al día
 if(!OBS)setInterval(pollOrders,400);
 async function pollWatch(){try{const r=await (await fetch('/reloj?since='+btnSeq)).json();
-  $('bwatch').textContent=[r.puente&&'Bluetooth via laptop',r.bt&&'Bluetooth',r.wifi&&(typeof r.wifi==='string'?'WiFi '+r.wifi:'WiFi'),r.usb&&'USB'].filter(Boolean).join(' + ')||'disconnected';
+  $('bwatch').textContent=VIS&&obsLast&&obsLast.watchTxt?obsLast.watchTxt:[r.puente&&'Bluetooth via laptop',r.bt&&'Bluetooth',r.wifi&&(typeof r.wifi==='string'?'WiFi '+r.wifi:'WiFi'),r.usb&&'USB'].filter(Boolean).join(' + ')||'disconnected';
   const first=!btnInit;btnInit=true; // la primera lectura solo se pone al día (no repite botones viejos)
   for(const e of r.events){btnSeq=Math.max(btnSeq,e.seq);if(OBS||first)continue;if(e.button==='SOS')triggerSOS('watch button');else if(e.button==='CANCEL')cancelSOS('the astronaut (watch)')}}catch(e){}}
 setInterval(pollWatch,300);
@@ -349,10 +380,10 @@ function render(){if(VIS){renderMirror(obsLast);return}
   const wp=watchPacket(pos,next,o,b,ttr);drawOled(wp);sendUSB(wp);
   if(mode==='3d'&&window.V3D)V3D.update(pos,p,walked);
   lastSnap={phase,met,o,b,dose,ttr,pos,next,wp,prof:p,fl,dest:destLabel(),stateTxt:stateTxt(),walked:walked.concat([pos]),route:(phase==='idle'?stop.path:path).map(ll2),
-    planned:phase==='idle',sos,sosAck,busOk,storm,rad,comms,live:true};
+    planned:phase==='idle',sos,sosAck,busOk,storm,rad,comms,live:true,watchTxt:$('bwatch').textContent};
   renderBase(lastSnap)}
 let lastSnap=null;
-if(!OBS)setInterval(()=>{if(lastSnap)fetch('/eva/estado',{method:'POST',body:JSON.stringify(lastSnap)}).catch(()=>{})},500); // la base (otra pantalla) lee esto
+if(!OBS)setInterval(()=>{if(lastSnap)fetch('/eva/estado',{method:'POST',body:JSON.stringify(lastSnap),headers:{'X-Sesion':SID}}).catch(()=>{})},500); // la base (otra pantalla) lee esto
 // ---------- panel de la base ----------
 let bmap=null,bAstro,bRoute,bTrail,bSos;
 const stateTxt=()=>({idle:'AT HABITAT',wait:'COMPUTING ROUTE',out:'OUTBOUND',work:'SAMPLING',ret:'RETURNING',evac:'EVACUATION',done:'EVA COMPLETE'}[phase]);
@@ -407,7 +438,7 @@ function renderBase(S){ // S: estado de la EVA (local, o recibido del servidor e
   if($('base').style.display==='none')return;
   if(!bmap)initBaseMap();
   $('bmet').textContent='MET '+hms(S.met);$('bbe').className='pill '+(S.busOk?'ok':'bad');$('bbe').textContent=S.busOk?'ENGINE OK':'NO ENGINE';
-  $('blive').className='pill '+(S.live?'ok':'bad');$('blive').textContent=S.live?'LIVE':'NO ASTRONAUT DATA';
+  $('blive').className='pill '+(S.live?'ok':VIS?'':'bad');$('blive').textContent=S.live?'LIVE':VIS?'PAUSED':'NO ASTRONAUT DATA';
   $('balerts').innerHTML=S.fl.map(x=>`<span class="pill ${soft(x)?'warn':'bad'}">${x}</span>`).join(' ');
   $('bstate').textContent=S.stateTxt;$('bdest').textContent=['ret','evac','done'].includes(S.phase)?'Habitat':S.dest;
   $('bdist').textContent=Math.round(hav(S.pos,ref))+' m';$('bttr').textContent=fmt(S.ttr);
@@ -421,9 +452,9 @@ function renderBase(S){ // S: estado de la EVA (local, o recibido del servidor e
     if(!bSos)bSos=L.marker(S.sos.ll,{icon:L.divIcon({className:'',html:'<div style="background:#ff453a;color:#fff;font-weight:800;border-radius:8px;padding:2px 6px;white-space:nowrap">🆘 SOS</div>'})}).addTo(bmap)}
   else if(bSos){bSos.remove();bSos=null}}
 // pantalla de la base: lee el estado que publica la tablet del astronauta
-let obsLast={phase:'idle',met:0,o:1,b:1,dose:0,ttr:0,pos:ref,fl:[],dest:'—',stateTxt:'NO DATA',walked:[ref],route:[],sos:null,sosAck:false,busOk:false,live:false};
+let obsLast={phase:'idle',met:0,o:1,b:1,dose:0,ttr:0,pos:ref,fl:[],dest:'—',stateTxt:VIS?'AT HABITAT':'NO DATA',walked:[ref],route:[],sos:null,sosAck:false,busOk:false,live:false};
 async function obsTick(){try{const r=await (await fetch('/eva/estado')).json();
-  if(r.state&&r.age<4){obsLast=r.state;met=obsLast.met}else obsLast={...obsLast,live:false,stateTxt:'NO DATA'}}catch(e){obsLast={...obsLast,live:false}}
+  if(r.state&&r.age<4){obsLast=r.state;met=obsLast.met}else if(r.state&&VIS){obsLast={...r.state,live:false}}else obsLast={...obsLast,live:false,stateTxt:VIS?obsLast.stateTxt:'NO DATA'}}catch(e){obsLast={...obsLast,live:false}}
   renderBase(obsLast);if(VIS)renderMirror(obsLast)}
 // visitante: dibuja la tablet y el reloj con el estado que publica la tablet del operador
 let mirRoute='';
@@ -434,7 +465,7 @@ function renderMirror(S){if(!S)return;
   $('dose').textContent=(S.dose*1000).toFixed(1)+' µSv';$('ttr').textContent=fmt(S.ttr);
   $('alerts').innerHTML=S.fl.map(x=>`<span class="pill ${soft(x)?'warn':'bad'}">${x}</span>`).join(' ');
   $('be').className='pill '+(S.busOk?'ok':'bad');$('be').textContent=S.busOk?'ENGINE OK':'NO ENGINE';
-  $('go').disabled=true;$('go').textContent=S.live?'👁 Live EVA · '+S.stateTxt:'👁 Waiting for the astronaut tablet…';
+  $('go').disabled=true;$('go').textContent='👁 Live EVA · '+S.stateTxt;
   const tb=$('tsos');tb.classList.toggle('on',!!S.sos);tb.classList.toggle('ack',!!S.sos&&!!S.sosAck);
   $('tsostxt').innerHTML=S.sos?(S.sosAck?'BASE OK<small>SOS</small>':'SENT<small>SOS</small>'):'SOS<small>READ ONLY</small>';
   $('link').className='pill '+(S.comms?'warn':'ok');$('link').textContent=S.comms?'NO LINK · AUTONOMOUS MODE':'HABITAT LINK OK';
@@ -578,7 +609,8 @@ document.querySelectorAll('.vcap').forEach(bt=>bt.onclick=async()=>{mode=bt.data
   $('legend').style.display=is3?'none':'';$('hint3d').style.display=is3?'block':'none';
   if(is3){await V3D.init({M,bb,ref});V3D.resize()}else map.invalidateSize();render()});
 drawRoute();render();planInfo(stop);
-if(ROLB)document.querySelector('.cap[data-v=base]').click();else if(matchMedia('(max-width:1240px)').matches)document.querySelector('.cap[data-v=tablet]').click();
+const VISTA=new URLSearchParams(location.search).get('vista');
+if(['tablet','watch','base'].includes(VISTA))document.querySelector(`.cap[data-v=${VISTA}]`).click();else if(ROLB)document.querySelector('.cap[data-v=base]').click();else if(matchMedia('(max-width:1240px)').matches)document.querySelector('.cap[data-v=tablet]').click();
 if(OBS)setInterval(obsTick,400);
 let last=performance.now();if(!OBS)setInterval(()=>{const now=performance.now(),dt=(now-last)/1000*speed;last=now;step(dt);render()},100);
 })();

@@ -15,6 +15,8 @@ Solo librería estándar.
 Uso:  python3 servidor.py [--backend ../SpaceApps2026] [--port 8791] [--tty /dev/ttyUSB0]
 """
 import argparse
+import urllib.error
+import urllib.request
 import hmac
 import secrets
 import base64
@@ -530,6 +532,30 @@ class Shared:
 SHARED = Shared()
 
 
+def mirror_loop(base: str, token: str):
+    """Espejo para visitantes: manda a la nube (Render) el estado de la EVA de la tablet local.
+    Autenticado como operador (cookie con el token); los visitantes de la nube lo ven en vivo."""
+    last_at, fails = 0.0, 0
+    while True:
+        time.sleep(0.5)
+        with SHARED.lock:
+            state, at = SHARED.state, SHARED.at
+        if state is None or at == last_at:
+            continue
+        req = urllib.request.Request(base + "/eva/estado", data=json.dumps(state).encode(), method="POST",
+                                     headers={"Content-Type": "application/json", "Cookie": f"{OP_COOKIE}={token}"})
+        try:
+            urllib.request.urlopen(req, timeout=20).read()
+            last_at = at
+            if fails:
+                print("espejo: conectado de nuevo con", base, flush=True)
+            fails = 0
+        except (urllib.error.URLError, OSError) as exc:
+            fails += 1
+            if fails in (1, 10) or fails % 120 == 0:
+                print("espejo: no se pudo publicar en la nube:", exc, flush=True)
+
+
 STATIC = {"/app.html", "/mission.json", "/logo_ares.png", "/oled_logo.png"}  # lo único que se sirve de esta carpeta
 TOKEN_FILE = HERE / ".token_operador"  # no se sirven ni se suben a git
 WATCH_TOKEN_FILE = HERE / ".token_reloj"
@@ -607,6 +633,8 @@ def make_handler(serial: SerialPort, bus: BusClient, data_dir: Path, busproc: "B
             return False
 
         def _limited(self) -> bool:
+            if not self._remote():
+                return False  # la laptop y la tablet por USB no tienen límite (la tablet sola hace ~20 peticiones/s)
             key = self.headers.get("Cf-Connecting-Ip") or ""
             if not key and PUBLICO:  # detrás del proxy de la plataforma: la IP real va en X-Forwarded-For
                 key = (self.headers.get("X-Forwarded-For") or "").split(",")[0].strip()
@@ -776,6 +804,9 @@ def make_handler(serial: SerialPort, bus: BusClient, data_dir: Path, busproc: "B
                 ok = serial.write(line)
                 return self._reply(200 if ok else 503, serial.status())
             if self.path == "/eva/estado":  # la tablet del astronauta publica su estado
+                sid = self.headers.get("X-Sesion") or ""
+                if owner["id"] is not None and sid != owner["id"]:  # solo la pantalla que controla el reloj
+                    return self._reply(409, {"error": "otra pantalla controla la EVA"})
                 try:
                     state = json.loads(self._body(400_000) or b"")
                 except ValueError:
@@ -835,6 +866,7 @@ def main():
     ap.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8791")))
     ap.add_argument("--host", default="127.0.0.1", help="0.0.0.0 en la nube")
     ap.add_argument("--publico", action="store_true", help="servidor en internet: todos son visitantes salvo el operador con token")
+    ap.add_argument("--espejo", help="URL https de la nube (p. ej. Render) donde los visitantes ven esta EVA en vivo")
     ap.add_argument("--sin-hardware", action="store_true", help="sin USB/Bluetooth/WiFi local: el reloj llega por puente_reloj.py")
     ap.add_argument("--bus-port", type=int, default=8765)
     ap.add_argument("--tty", default="auto", help="puerto del reloj; auto = primer /dev/ttyUSB*")
@@ -856,6 +888,11 @@ def main():
         (args.host, args.port),
         make_handler(serial, bus, backend / "data" / "processed", busproc, Planner(backend), token, watch_token))
     server.daemon_threads = True
+    if args.espejo:
+        if not args.espejo.startswith("https://"):
+            raise SystemExit("--espejo debe ser https:// (el token viaja en la petición)")
+        threading.Thread(target=mirror_loop, args=(args.espejo.rstrip("/"), token), daemon=True).start()
+        print("Espejo para visitantes →", args.espejo, flush=True)
     print(f"Prototipo: http://{args.host}:{args.port}/app.html{' (público)' if PUBLICO else ''} · bus ws://127.0.0.1:{args.bus_port} "
           f"· reloj {args.tty}\nOperador por internet: <url pública>/op/<token>  (token en {TOKEN_FILE.name})", flush=True)
     try:
