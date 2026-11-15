@@ -15,6 +15,8 @@ Solo librería estándar.
 Uso:  python3 servidor.py [--backend ../SpaceApps2026] [--port 8791] [--tty /dev/ttyUSB0]
 """
 import argparse
+import gzip
+from array import array
 import urllib.error
 import urllib.request
 import hmac
@@ -605,6 +607,16 @@ class RateLimit:
 def make_handler(serial: SerialPort, bus: BusClient, data_dir: Path, busproc: "BusProcess", planner: Planner,
                  token: str, watch_token: str):
     data_files = {"/elevation.bin", "/slope.bin"}
+    slope_cache = {}
+
+    def slope_u8():
+        """Pendiente en grados enteros (1 byte/celda) + su versión gzip: 4 MB -> ~0,4 MB para la página."""
+        if not slope_cache:
+            a = array("f")
+            a.frombytes((data_dir / "slope.bin").read_bytes())
+            raw = bytes(min(255, max(0, round(v))) if v == v else 0 for v in a)
+            slope_cache["raw"], slope_cache["gz"] = raw, gzip.compress(raw, 6)
+        return slope_cache
     limiter = RateLimit()
     owner = {"id": None}  # solo la última pantalla del astronauta que abrió la página le escribe al reloj
 
@@ -752,6 +764,19 @@ def make_handler(serial: SerialPort, bus: BusClient, data_dir: Path, busproc: "B
             if path == "/bus":
                 rev = query[4:] if query.startswith("rev=") else None
                 return self._reply(200, bus.snapshot(int(rev) if rev and rev.isdigit() else None))
+            if path == "/slope.u8":
+                c = slope_u8()
+                gz = "gzip" in (self.headers.get("Accept-Encoding") or "")
+                body = c["gz"] if gz else c["raw"]
+                self.send_response(200)
+                self.send_header("Content-Type", "application/octet-stream")
+                if gz:
+                    self.send_header("Content-Encoding", "gzip")
+                self.send_header("Cache-Control", "public, max-age=3600")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
             if path in data_files:  # capas del backend, no copias locales
                 body = (data_dir / path[1:]).read_bytes()
                 self.send_response(200)

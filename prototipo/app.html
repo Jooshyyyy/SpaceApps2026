@@ -152,7 +152,8 @@ body{margin:0;color:var(--txt);text-shadow:0 1px 2px rgba(0,0,0,.35);font:14px/1
 <script type="importmap">{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js","three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}</script>
 </head><body>
 <div class="splash" id="splash" role="img" aria-label="ARES · Mars Navigation Map"><img src="logo_ares.png" alt="ARES · Mars Navigation Map"></div>
-<script>(()=>{const sp=document.getElementById('splash'),hide=()=>sp.classList.add('out');setTimeout(hide,2600);sp.addEventListener('pointerdown',hide)})();</script>
+<script>(()=>{const sp=document.getElementById('splash'),t0=performance.now(),hide=()=>sp.classList.add('out');sp.addEventListener('pointerdown',hide);
+ const chk=()=>{if(sp.classList.contains('out'))return;const el=performance.now()-t0;if((window.aresReady&&el>2600)||el>15000)hide();else setTimeout(chk,200)};setTimeout(chk,200)})();</script>
 <div class="top glass"><h1>ARES</h1><span class="pill vispill" title="You are watching the live EVA. Only the operator can control it.">👁 Visitor · live</span><span class="brk"></span>
  <button data-v="both" class="cap on">Tablet + Watch</button><button data-v="tablet" class="cap">Tablet</button><button data-v="watch" class="cap">Watch</button><button data-v="base" class="cap">🛰 <span class="hidem">Mission </span>Control</button>
  <span class="sp"></span>
@@ -229,11 +230,14 @@ body{margin:0;color:var(--txt);text-shadow:0 1px 2px rgba(0,0,0,.35);font:14px/1
 <div class="foot">Team route engine and event bus (eva_engine · eva_bus) · area curiosity-2025-eva-site · JPL Mars Trek / HiRISE maps · Earth: ~12 min delay, 100% local navigation</div>
 <script>
 (async()=>{
-const M=await (await fetch('mission.json')).json();
-const SL=new Float32Array(await (await fetch('slope.bin')).arrayBuffer());
-const bb=M.aoi.bbox,P=M.plss,$=id=>document.getElementById(id);
-let ME={operador:true};try{ME=await (await fetch('/yo')).json()}catch(e){}
+// el rol va primero: el visitante nunca ve los controles del operador (si /yo falla, es visitante)
+const ME=await fetch('/yo').then(r=>r.json()).catch(()=>({operador:false}));
 const VIS=!ME.operador; // visitante (QR público): ve la EVA en vivo en todas las vistas, sin controlar nada
+if(VIS)document.body.classList.add('obs','vis');
+// pendiente en grados enteros (slope.u8, ~0,4 MB con gzip en vez de 4 MB)
+const [M,SLU]=await Promise.all([fetch('mission.json').then(r=>r.json()),fetch('slope.u8').then(r=>r.arrayBuffer())]);
+const SL=Float32Array.from(new Uint8Array(SLU));
+const bb=M.aoi.bbox,P=M.plss,$=id=>document.getElementById(id);
 const ROLB=new URLSearchParams(location.search).get('rol')==='base';
 const OBS=VIS||ROLB; // pantalla que solo observa (la base manda órdenes; el visitante, ni eso)
 if(OBS)document.body.classList.add('obs');if(VIS)document.body.classList.add('vis');
@@ -613,6 +617,7 @@ const VISTA=new URLSearchParams(location.search).get('vista');
 if(['tablet','watch','base'].includes(VISTA))document.querySelector(`.cap[data-v=${VISTA}]`).click();else if(ROLB)document.querySelector('.cap[data-v=base]').click();else if(matchMedia('(max-width:1240px)').matches)document.querySelector('.cap[data-v=tablet]').click();
 if(OBS)setInterval(obsTick,400);
 let last=performance.now();if(!OBS)setInterval(()=>{const now=performance.now(),dt=(now-last)/1000*speed;last=now;step(dt);render()},100);
+window.aresReady=true; // el logo de inicio se va cuando la página está lista
 })();
 </script>
 <script type="module">
