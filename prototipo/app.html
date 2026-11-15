@@ -1,0 +1,587 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mars EVA Nav</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+:root{--txt:#f4f6fa;--mut:rgba(235,240,250,.8);--ok:#32d74b;--warn:#ffd60a;--bad:#ff453a;--acc:#64d2ff;
+ --glass:linear-gradient(145deg,rgba(58,62,74,.58),rgba(14,16,22,.50));--edge:rgba(255,255,255,.28);--blur:blur(24px) saturate(185%)}
+*{box-sizing:border-box}
+body{margin:0;color:var(--txt);text-shadow:0 1px 2px rgba(0,0,0,.35);font:14px/1.35 -apple-system,"SF Pro Display",system-ui,sans-serif;min-height:100vh;
+ background:radial-gradient(1200px 700px at 15% 0%,#7a3a22 0%,transparent 60%),radial-gradient(900px 600px at 95% 100%,#2a3b5c 0%,transparent 60%),#0a0a0f}
+.glass{position:relative;background:var(--glass);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);border:1px solid var(--edge);border-radius:24px;
+ box-shadow:inset 0 1px 0 rgba(255,255,255,.45),inset 0 -1px 1px rgba(255,255,255,.08),inset 0 0 20px rgba(255,255,255,.05),0 12px 40px rgba(0,0,0,.45)}
+.glass::before{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+ background:radial-gradient(120% 60% at 20% -10%,rgba(255,255,255,.28),transparent 45%),radial-gradient(80% 40% at 100% 110%,rgba(255,255,255,.10),transparent 60%)}
+.top{display:flex;gap:8px;align-items:center;margin:14px 18px 0;padding:8px 10px 8px 18px;border-radius:999px;overflow-x:auto;scrollbar-width:none;z-index:1500}
+.top>*{flex-shrink:0}.top .sp{flex:1}
+.top h1{font-size:15px;font-weight:650;margin:0 12px 0 0}
+.cap{background:rgba(255,255,255,.08);color:var(--txt);border:1px solid rgba(255,255,255,.18);border-radius:999px;padding:7px 14px;cursor:pointer;
+ box-shadow:inset 0 1px 0 rgba(255,255,255,.3);transition:.2s;font:inherit;font-weight:600;font-size:13px}
+.cap:hover{background:rgba(255,255,255,.16)}.cap.on{background:rgba(100,210,255,.35);border-color:rgba(100,210,255,.7)}
+.cap.usb.on{background:rgba(50,215,75,.38);border-color:rgba(120,240,140,.7)}
+.stage{display:flex;gap:32px;padding:20px;align-items:flex-start;justify-content:center;flex-wrap:wrap}
+.tablet{width:1180px;height:780px;position:relative;border-radius:38px;overflow:hidden;background:#000;
+ box-shadow:0 0 0 10px rgba(255,255,255,.06),0 0 0 11px rgba(255,255,255,.25),0 30px 80px rgba(0,0,0,.6)}
+#map{position:absolute;inset:0;background:#000}
+#v3d{position:absolute;inset:0;display:none;background:#c9a07a}#v3d canvas{display:block}
+.hdr{position:absolute;z-index:800;top:14px;left:14px;right:14px;height:48px;display:flex;align-items:center;gap:12px;padding:0 10px 0 18px;border-radius:999px;font-size:13px}
+.hdr .sp{flex:1}
+.pill{padding:5px 11px;border-radius:999px;font-weight:650;font-size:12px;background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.18);box-shadow:inset 0 1px 0 rgba(255,255,255,.25)}
+.pill.ok{color:var(--ok)}.pill.bad{background:rgba(255,69,58,.55);border-color:rgba(255,120,110,.8);color:#fff}
+.pill.warn{background:rgba(255,214,10,.45);border-color:rgba(255,230,120,.8);color:#fff}
+.side{position:absolute;z-index:800;top:76px;right:14px;bottom:14px;width:330px;padding:12px 12px 0;overflow:auto;background:linear-gradient(145deg,rgba(44,48,60,.86),rgba(14,16,22,.84));display:flex;flex-direction:column;gap:10px;border-radius:28px;scrollbar-width:none}
+.card{position:relative;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14);border-radius:18px;padding:12px;box-shadow:inset 0 1px 0 rgba(255,255,255,.18)}
+.card h3{margin:0 0 8px;font-size:12px;font-weight:650;letter-spacing:.09em;color:var(--mut);text-transform:uppercase}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.kv b{display:block;font-size:24px;font-weight:700;font-variant-numeric:tabular-nums}.kv span{color:var(--mut);font-size:12px}
+.bar{height:6px;background:rgba(255,255,255,.12);border-radius:99px;margin-top:5px;overflow:hidden}.bar i{display:block;height:100%;border-radius:99px;background:var(--ok)}
+.stops label{display:flex;gap:8px;align-items:center;padding:8px 10px;border-radius:12px;cursor:pointer;transition:.2s}
+.plan{margin-top:8px;padding:9px 11px;border-radius:12px;background:rgba(255,255,255,.06);font-size:13px;line-height:1.55}
+.plan b{color:#fff}.plan .ok{color:var(--ok)}.plan .bad{color:var(--bad)}.plan .hint{color:var(--mut)}
+.stops label:hover{background:rgba(255,255,255,.08)}.stops label:has(input:checked){background:rgba(100,210,255,.18);box-shadow:inset 0 0 0 1px rgba(100,210,255,.45)}
+.stops input{accent-color:var(--acc);width:18px;height:18px}.stops label{min-height:44px}.stops small{color:var(--mut);margin-left:auto}
+.btns{display:flex;gap:6px;flex-wrap:wrap}
+.base{width:1180px;min-height:780px;padding:18px;border-radius:34px}
+.bhdr{display:flex;gap:12px;align-items:center;margin-bottom:14px;padding:0 6px}.bhdr h2{margin:0;font-size:17px;font-weight:700}.bhdr .sp{flex:1}
+.bgrid{display:grid;grid-template-columns:380px 1fr;gap:12px}.bcol{display:flex;flex-direction:column;gap:12px}
+#bmap{height:430px;border-radius:14px;background:#000}
+.blog{height:220px;overflow:auto;font-size:12.5px;font-variant-numeric:tabular-nums;scrollbar-width:thin}
+.blog div{padding:4px 2px;border-bottom:1px solid rgba(255,255,255,.07)}.blog .t{color:var(--mut);margin-right:8px}.blog .bad{color:#ff8a80}.blog .ok{color:var(--ok)}
+.sosban{position:sticky;top:8px;z-index:1200;display:none;align-items:center;gap:12px;margin-bottom:14px;padding:14px 18px;border-radius:20px;font-weight:700;font-size:16px;
+ background:rgba(190,30,22,.94);border:1px solid rgba(255,140,130,.9);animation:fl 1s infinite;flex-wrap:wrap}
+.sosban.on{display:flex}.sosban.ack{animation:none;background:rgba(176,100,0,.94)}.sosban .sp{flex:1}
+.sosban button{padding:9px 16px;border-radius:999px;border:1px solid rgba(255,255,255,.6);background:rgba(0,0,0,.25);color:#fff;font:inherit;font-size:13px;cursor:pointer}
+.btns button{flex:1;min-width:80px;padding:9px;border-radius:999px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08);color:var(--txt);cursor:pointer;
+ font:inherit;font-weight:650;font-size:13px;box-shadow:inset 0 1px 0 rgba(255,255,255,.3);transition:.2s}
+.btns button:hover{background:rgba(255,255,255,.16)}
+.btns button.go{background:rgba(50,215,75,.38);border-color:rgba(120,240,140,.7)}
+.btns button.em.on{background:rgba(255,69,58,.6);border-color:rgba(255,130,120,.9);box-shadow:0 0 18px rgba(255,69,58,.6)}
+.prof{position:absolute;z-index:800;left:14px;right:358px;bottom:14px;height:120px;border-radius:24px;padding:4px 8px;background:linear-gradient(145deg,rgba(44,48,60,.82),rgba(14,16,22,.8))}
+.gocard{position:sticky;bottom:0;margin:auto -12px 0;padding:10px 12px 12px;z-index:5;background:rgba(22,25,33,.96);border-top:1px solid rgba(255,255,255,.16)}
+.gocard button{width:100%;padding:14px;font-size:16px}
+.simbox{position:fixed;z-index:2000;top:66px;right:18px;width:290px;padding:14px;border-radius:22px;background:linear-gradient(145deg,rgba(44,48,60,.96),rgba(14,16,22,.96))}
+.simbox h3{margin:0 0 8px;font-size:12px;font-weight:650;letter-spacing:.09em;color:var(--mut);text-transform:uppercase}
+.foot{color:var(--mut);font-size:11px;text-align:center;padding:0 16px 14px}
+.obs .cap[data-v],.obs #usb,.obs #simbtn{display:none}
+.prof canvas{width:100%;height:100%;display:block;position:relative}
+.pov{height:110px;border-radius:14px;overflow:hidden;position:relative;background:#000;z-index:0;isolation:isolate}
+.sosbtn{position:absolute;z-index:850;left:14px;bottom:196px;width:84px;height:84px;border-radius:50%;border:none;cursor:pointer;padding:5px;
+ background:conic-gradient(#fff calc(var(--p,0)*1turn),rgba(255,255,255,.25) 0);box-shadow:0 8px 24px rgba(0,0,0,.5);touch-action:none;user-select:none;-webkit-user-select:none}
+.sosbtn span{display:grid;place-items:center;width:100%;height:100%;border-radius:50%;background:radial-gradient(circle at 35% 30%,#ff6b60,#c4160b);
+ color:#fff;font:800 20px/1 system-ui;letter-spacing:.04em;text-align:center}
+.sosbtn small{display:block;font-size:9px;font-weight:700;margin-top:3px;letter-spacing:0}
+.sosbtn.on span{animation:sosp 1s infinite}.sosbtn.ack span{background:radial-gradient(circle at 35% 30%,#ffb340,#c46a00);animation:none}
+@keyframes sosp{50%{filter:brightness(1.6)}}
+.legend{position:absolute;z-index:800;left:14px;bottom:146px;padding:7px 12px;border-radius:999px;font-size:12px;background:linear-gradient(145deg,rgba(44,48,60,.86),rgba(14,16,22,.84))}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin:0 4px 0 8px;vertical-align:-1px}
+.mut{color:var(--mut);font-size:12px}
+.vt{position:absolute;z-index:800;top:78px;left:70px;display:flex;gap:4px;padding:4px;border-radius:999px}.vt .cap{padding:6px 16px}
+.compass{position:absolute;z-index:800;top:78px;right:358px;width:88px;height:88px;border-radius:50%;background:linear-gradient(145deg,rgba(44,48,60,.8),rgba(14,16,22,.78))}.compass svg{position:absolute;inset:0}
+.hint3d{position:absolute;z-index:800;left:70px;top:124px;padding:6px 12px;border-radius:999px;font-size:11px;display:none}
+.leaflet-top.leaflet-left{top:72px;left:4px}.leaflet-top.leaflet-right{top:166px;right:350px}
+.leaflet-bar,.leaflet-control-layers{border:1px solid rgba(255,255,255,.25)!important;border-radius:14px!important;overflow:hidden;background:rgba(30,32,40,.55)!important;
+ backdrop-filter:var(--blur);box-shadow:inset 0 1px 0 rgba(255,255,255,.4),0 6px 20px rgba(0,0,0,.4)!important}
+.leaflet-bar a{background:transparent!important;color:#fff!important;width:44px!important;height:44px!important;line-height:44px!important;font-size:24px!important}
+.leaflet-control-layers-toggle{width:44px!important;height:44px!important;filter:invert(1)}.leaflet-control-layers label{font-size:14px;padding:4px 2px}.leaflet-control-layers{color:#fff;padding:2px 6px}
+.watchwrap{display:flex;flex-direction:column;align-items:center;gap:14px}
+/* pantallas chicas (tablet real): el prototipo ocupa toda la pantalla */
+@media (max-width:1240px){
+ .top{margin:6px 8px 0;padding:6px 8px;border-radius:22px}.top h1{font-size:13px;margin-right:4px}.cap{padding:8px 12px;font-size:13px}
+ .cap[data-v=both]{display:none}
+ .stage{padding:8px;gap:12px}.foot{display:none}.simbox{top:58px;right:10px}
+ .tablet{width:100%;height:calc(100dvh - 70px);min-height:380px;border-radius:22px;box-shadow:none}
+ #bmap{height:340px}
+ .base{width:100%;padding:12px}.bgrid{grid-template-columns:1fr}
+ .hdr{overflow-x:auto;scrollbar-width:none;gap:8px}.hdr>*{flex-shrink:0}
+}
+@media (max-width:820px){ /* vertical: panel lateral como hoja inferior */
+ .side{top:auto;left:14px;width:auto;height:46%}
+ .hdr{font-size:12px}.prof{display:none}
+ .compass{right:14px}.leaflet-top.leaflet-right{right:6px}
+ .legend{bottom:calc(46% + 24px)}.sosbtn{bottom:calc(46% + 72px)}
+}
+.wglass{padding:16px;border-radius:50%}
+.watch{width:230px;height:230px;border-radius:50%;background:#000;position:relative;overflow:hidden;box-shadow:inset 0 0 0 1px rgba(255,255,255,.12)}
+.watch svg{position:absolute;inset:0}
+.wglass.alert{animation:fl 1s infinite}@keyframes fl{50%{box-shadow:0 0 0 2px rgba(255,69,58,.9),0 0 50px rgba(255,69,58,.8)}}
+.oledwrap{padding:12px 14px;border-radius:20px;display:flex;flex-direction:column;align-items:center;gap:6px}
+#oled{width:512px;max-width:88vw;aspect-ratio:2;height:auto;image-rendering:pixelated;background:#000;border-radius:6px}
+.wnote{color:var(--mut);font-size:12px;max-width:360px;text-align:center;padding:8px 14px;border-radius:16px}
+</style>
+<script type="importmap">{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js","three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}</script>
+</head><body>
+<div class="top glass"><h1>Mars EVA Nav</h1>
+ <button data-v="both" class="cap on">Tablet + Reloj</button><button data-v="tablet" class="cap">Tablet</button><button data-v="watch" class="cap">Reloj</button><button data-v="base" class="cap">🛰 Base de control</button>
+ <span class="sp"></span>
+ <button class="cap on" id="snd" title="Sonidos de advertencia">🔊 Sonido</button><button class="cap" id="simbtn">⚙ Simulación</button><button class="cap" id="fs">⛶ Pantalla completa</button><button class="cap usb" id="usb">⚡ Conectar reloj USB</button></div>
+<div class="simbox glass" id="simbox" style="display:none"><h3>Simulación · solo para la demo</h3>
+ <div class="btns" id="sndtest"><button data-s="sos">SOS</button><button data-s="storm">Tormenta</button><button data-s="rad">Radiación</button><button data-s="o2">O₂</button><button data-s="bat">Batería</button><button data-s="comms">Enlace</button><button data-s="evac">Evacuar</button><button data-s="ok">OK</button></div>
+ <div class="mut" style="margin:6px 0 12px">Probar cada sonido de advertencia</div>
+ <div class="btns"><button id="spd">Velocidad ×30</button></div>
+ <h3 style="margin-top:12px">Provocar contingencia</h3>
+ <div class="btns"><button class="em" id="storm">Tormenta</button><button class="em" id="rad">Radiación</button></div>
+ <div class="btns" style="margin-top:6px"><button class="em" id="comms">Corte de enlace</button><button class="em" id="bsos">Simular SOS</button></div></div>
+<div class="stage">
+ <div class="tablet" id="tablet">
+  <div id="map"></div><div id="v3d"></div>
+  <div class="hdr glass"><b>EVA-01</b><span id="met">MET 00:00:00</span><span class="pill ok" id="link">ENLACE HÁBITAT OK</span><span class="pill" id="be">MOTOR</span><span class="sp"></span><span id="alerts"></span><span class="pill" id="state">EN REFUGIO</span></div>
+  <div class="vt glass"><button class="cap vcap on" data-m="2d">2D</button><button class="cap vcap" data-m="3d">3D</button></div>
+  <div class="hint3d glass" id="hint3d">Arrastrar: rotar · Clic derecho: mover · Rueda: zoom · Elevación real 1:1</div>
+  <div class="compass"><svg viewBox="0 0 124 124" id="csvg"></svg></div>
+  <button class="sosbtn" id="tsos" title="Mantener 1,5 s para pedir ayuda · con el SOS activo, mantener para cancelar"><span id="tsostxt">SOS<small>MANTENER</small></span></button>
+  <div class="legend glass" id="legend">Pendiente<i style="background:#ffd60a"></i>10–20°<i style="background:repeating-linear-gradient(45deg,#ff453a 0 3px,#7a1a14 3px 6px)"></i>&gt;20° prohibido<i style="background:#ff9f0a;border-radius:50%"></i>Curiosity 2025</div>
+  <div class="prof glass"><canvas id="prof"></canvas></div>
+  <div class="side glass">
+   <div class="card"><h3>Soporte vital</h3>
+    <div class="grid2">
+     <div class="kv"><span>O₂</span><b id="o2">100%</b><div class="bar"><i id="o2b" style="width:100%"></i></div></div>
+     <div class="kv"><span>Batería</span><b id="bat">100%</b><div class="bar"><i id="batb" style="width:100%"></i></div></div>
+     <div class="kv"><span>Dosis EVA</span><b id="dose">0.0 µSv</b></div>
+     <div class="kv"><span>Tiempo de retorno</span><b id="ttr">0:00</b></div>
+    </div></div>
+   <div class="card"><h3>Objetivo científico</h3>
+    <div class="mut" style="margin-bottom:6px">Toca el mapa o un punto naranja de Curiosity para elegir otra parada, también durante la EVA</div>
+    <div class="stops" id="stops"></div><div class="plan" id="planinfo"></div></div>
+   <div class="card"><h3>Vista del objetivo</h3><div class="pov" id="pov"></div>
+    <div class="mut" style="margin-top:6px" id="povtxt"></div></div>
+   <div class="gocard btns"><button class="go" id="go">▶ Iniciar EVA</button></div>
+  </div>
+ </div>
+ <div class="base glass" id="base" style="display:none">
+  <div class="bhdr"><h2>🛰 Base de control · Hábitat Gale</h2><span class="pill" id="bmet">MET 00:00:00</span><span class="pill" id="bbe">MOTOR</span><span class="pill" id="blive">EN VIVO</span>
+   <span class="sp"></span><span id="balerts"></span></div>
+  <div class="sosban" id="sosban">🆘 <span id="sostxt">SOS DEL ASTRONAUTA</span><span class="sp"></span>
+   <button id="sosack">Confirmar recepción</button><button id="soscancel">Cerrar emergencia</button></div>
+  <div class="bgrid">
+   <div class="bcol">
+    <div class="card"><h3>Astronauta EVA-01</h3>
+     <div class="grid2">
+      <div class="kv"><span>Estado</span><b id="bstate" style="font-size:16px">EN REFUGIO</b></div>
+      <div class="kv"><span>Destino</span><b id="bdest" style="font-size:16px">—</b></div>
+      <div class="kv"><span>Distancia al refugio</span><b id="bdist">0 m</b></div>
+      <div class="kv"><span>Tiempo de retorno</span><b id="bttr">0:00</b></div>
+      <div class="kv"><span>O₂</span><b id="bo2">100%</b><div class="bar"><i id="bo2b" style="width:100%"></i></div></div>
+      <div class="kv"><span>Batería</span><b id="bbat">100%</b><div class="bar"><i id="bbatb" style="width:100%"></i></div></div>
+      <div class="kv"><span>Dosis EVA</span><b id="bdose">0.0 µSv</b></div>
+      <div class="kv"><span>Reloj (USB)</span><b id="bwatch" style="font-size:14px">—</b></div>
+     </div></div>
+    <div class="card"><h3>Órdenes de la base</h3>
+     <div class="btns"><button id="bret">⌂ Ordenar regreso</button></div>
+     <div class="btns" style="margin-top:6px"><button class="em" id="bstorm">Alerta tormenta</button><button class="em" id="brad">Alerta radiación</button></div>
+     <div class="mut" style="margin-top:8px">El SOS llega del botón del reloj o de la tablet del astronauta. Al recibirlo se ordena el regreso al refugio.</div></div>
+   </div>
+   <div class="bcol">
+    <div class="card"><h3>Posición del astronauta</h3><div id="bmap"></div></div>
+    <div class="card"><h3>Bitácora de la misión</h3><div class="blog" id="blog"></div></div>
+   </div>
+  </div>
+ </div>
+ <div class="watchwrap" id="watchwrap">
+  <div class="oledwrap glass"><div class="mut">Reloj real · ESP32 + OLED 1,3″ 128×64</div><canvas id="oled" width="128" height="64"></canvas>
+   <div class="mut" id="usbinfo">Lo mismo que muestra el reloj físico</div></div>
+  <div class="wglass glass" id="wglass"><div class="watch"><svg viewBox="0 0 324 324" id="wsvg"></svg></div></div>
+  <div class="wnote glass">Arriba: la pantalla del reloj real. Abajo: concepto a futuro de un reloj redondo a color.</div>
+ </div>
+</div>
+<div class="foot">Motor de rutas y bus de eventos del equipo (eva_engine · eva_bus) · zona curiosity-2025-eva-site · mapas JPL Mars Trek / HiRISE · Tierra: retraso ~12 min, navegación 100% local</div>
+<script>
+(async()=>{
+const M=await (await fetch('mission.json')).json();
+const SL=new Float32Array(await (await fetch('slope.bin')).arrayBuffer());
+const bb=M.aoi.bbox,P=M.plss,$=id=>document.getElementById(id);
+const OBS=new URLSearchParams(location.search).get('rol')==='base'; // pantalla de la base: solo observa y manda órdenes
+if(OBS)document.body.classList.add('obs');
+// ---------- mapa 2D ----------
+const T='https://trek.nasa.gov/tiles/Mars/EQ/',Q='/1.0.0/default/default028mm/{z}/{y}/{x}.png';
+const map=L.map('map',{crs:L.CRS.EPSG4326,attributionControl:false,maxZoom:19});
+L.tileLayer(T+'curiosity_hirise_mosaic'+Q,{maxNativeZoom:16,maxZoom:19}).addTo(map);
+const B=[[bb.south,bb.west],[bb.north,bb.east]];map.fitBounds(B);
+const cv=document.createElement('canvas');cv.width=cv.height=1000;const cx=cv.getContext('2d'),im=cx.createImageData(1000,1000);
+for(let i=0;i<1e6;i++){const s=SL[i];let c=[0,0,0,0];if(s>20)c=((i%1000+(i/1000|0))%8<4)?[255,69,58,150]:[120,20,14,95];else if(s>10)c=[255,214,10,60];im.data.set(c,i*4)}
+cx.putImageData(im,0,0);const slopeLayer=L.imageOverlay(cv.toDataURL(),B).addTo(map);
+L.rectangle(B,{color:'#64d2ff',weight:1,fill:false,dashArray:'4 4'}).addTo(map);
+const curio=L.layerGroup([L.polyline(M.traverse.map(q=>[q[0],q[1]]),{color:'#ff9f0a',weight:2.5,opacity:.9,dashArray:'2 6',interactive:false})]).addTo(map);
+M.traverse.forEach(q=>L.circleMarker([q[0],q[1]],{radius:3,color:'#3a2200',weight:.5,opacity:.7,fillColor:'#ff9f0a',fillOpacity:.6,bubblingMouseEvents:false})
+  .bindTooltip('Curiosity · sol '+q[2]).on('click',()=>{const [r,c]=LL2RC(q);pickPoint(r,c,'Curiosity sol '+q[2],q[2])}).addTo(curio));
+L.control.layers(null,{'Pendiente del terreno':slopeLayer,'Recorrido Curiosity 2025':curio},{collapsed:true}).addTo(map);
+const ref=M.aoi.refuge.ll;
+L.marker(ref,{icon:L.divIcon({className:'',html:'<div style="background:#64d2ff;color:#000;font-weight:700;border-radius:6px;padding:2px 6px;font-size:11px;white-space:nowrap">⌂ Refugio</div>'})}).addTo(map);
+const routeLayer=L.layerGroup().addTo(map),trail=L.polyline([],{color:'#fff',weight:3,dashArray:'2 5'}).addTo(map);
+const astro=L.circleMarker(ref,{radius:7,color:'#000',weight:2,fillColor:'#64d2ff',fillOpacity:1}).addTo(map);
+const LL2RC=q=>[Math.floor((bb.north-q[0])/(bb.north-bb.south)*1000),Math.floor((q[1]-bb.west)/(bb.east-bb.west)*1000)];
+const pickMark=L.marker(ref,{opacity:0,interactive:false,icon:L.divIcon({className:'',html:'<div style="background:#bf5af2;color:#fff;font-weight:800;border-radius:50%;width:24px;height:24px;display:grid;place-items:center;box-shadow:0 0 0 2px #fff">★</div>',iconSize:[24,24],iconAnchor:[12,12]})}).addTo(map);
+map.on('click',e=>{const q=[e.latlng.lat,e.latlng.lng];if(q[0]<bb.south||q[0]>bb.north||q[1]<bb.west||q[1]>bb.east)return;const [r,c]=LL2RC(q);pickPoint(r,c,'Punto elegido')});
+M.stops.forEach(s=>L.marker(s.ll,{icon:L.divIcon({className:'',html:`<div style="background:#ffd60a;color:#000;font-weight:700;border-radius:50%;width:22px;height:22px;display:grid;place-items:center">${s.id}</div>`,iconSize:[22,22],iconAnchor:[11,11]})}).addTo(map).on('click',()=>select(s.id)));
+const pov=L.map('pov',{crs:L.CRS.EPSG4326,zoomControl:false,attributionControl:false,dragging:false,scrollWheelZoom:false}).setView(M.stops[0].ll,16);
+L.tileLayer(T+'curiosity_hirise_mosaic'+Q,{maxNativeZoom:16,maxZoom:19}).addTo(pov);
+const povMark=L.circleMarker(M.stops[0].ll,{radius:5,color:'#ffd60a'}).addTo(pov);
+// ---------- misión: backend del equipo (eva_bus capa 3 + eva_engine capa 2) ----------
+const hav=(a,b)=>{const R=3396190,r=Math.PI/180,dl=(b[0]-a[0])*r,dn=(b[1]-a[1])*r;return 2*R*Math.asin(Math.sqrt(Math.sin(dl/2)**2+Math.cos(a[0]*r)*Math.cos(b[0]*r)*Math.sin(dn/2)**2))};
+const ll2=q=>[q[0],q[1]];
+const RC2LL=(r,c)=>[bb.north-(r+.5)/1000*(bb.north-bb.south),bb.west+(c+.5)/1000*(bb.east-bb.west)];
+const toPath=pts=>pts.map(q=>[...RC2LL(q.row,q.col),q.elevation_m,SL[q.row*1000+q.col],q.row,q.col]);
+function legFrom(path,sim){ // reparte el tiempo del motor por tramo según la pendiente (solo para animar)
+  const seg=[];let wt=0;
+  for(let i=1;i<path.length;i++){const d=hav(path[i-1],path[i]),f=Math.min(Math.max(path[i][3],0),20)/20,t=d/(1-0.55*f);seg.push({d,t});wt+=t}
+  seg.forEach(s=>s.t*=sim.time_s/(wt||1));return seg}
+const REF=M.aoi.refuge,isRef=g=>g&&g.row===REF.row&&g.col===REF.col,sameRC=(g,t)=>g&&t&&g.row===t.row&&g.col===t.col;
+let stop=M.stops[0],phase='idle',idx=0,frac=0,met=0,speed=30,dwell=0,mode='2d',walked=[ref];
+let storm=false,rad=false,comms=false,path=stop.path,seg=[],plan=null,rev=null,tele=null,busOk=false,wantGoal=null,lastPost=0;
+let o2=P.o2_capacity_kg,bat=P.batt_capacity_wh,dose=0;
+const cmd=o=>fetch('/bus/cmd',{method:'POST',body:JSON.stringify(o)}).catch(()=>{});
+let custom=null; // parada elegida por el astronauta (clic en el mapa o en un punto de Curiosity)
+const allStops=()=>custom?M.stops.concat([custom]):M.stops;
+const CARD=['norte','noreste','este','sureste','sur','suroeste','oeste','noroeste'],destLabel=()=>stop.custom?stop.name:'Parada '+stop.id;
+function renderStops(){$('stops').innerHTML=allStops().map(s=>`<label><input type="radio" name="st" value="${s.id}" ${s===stop?'checked':''}> ${s.custom?'★ '+s.name:'Parada '+s.id+' · al '+CARD[Math.round(bearing(ref,s.ll)/45)%8]}<small>${Math.round(s.out.distance_m)} m · ${Math.round(s.out.time_s/60)} min</small></label>`).join('')}
+function planInfo(s,msg){const el=$('planinfo');if(msg){el.innerHTML=`<span class="bad">${msg}</span>`;return}
+  const f=s.feasible!==false,al=(s.alerts||[]).length?`<span class="bad">⚠ ${s.alerts.join(', ')}</span><br>`:'';
+  el.innerHTML=`<b>Plan del motor</b> <span class="hint">(desde el refugio)</span><br>${Math.round(s.out.distance_m)} m · ida ${fmt(s.out.time_s)} · vuelta ${fmt(s.inb.time_s)} · subida ${Math.round(s.out.climb_m)} m<br>`+
+   `Consumo ida+vuelta: O₂ ${((s.out.o2_kg+s.inb.o2_kg)/P.o2_capacity_kg*100).toFixed(1)}% · batería ${((s.out.batt_wh+s.inb.batt_wh)/P.batt_capacity_wh*100).toFixed(1)}% · dosis ${((s.out.dose_msv+s.inb.dose_msv)*1000).toFixed(1)} µSv<br>`+
+   al+`<span class="${f?'ok':'bad'}">${f?'✔ Regreso factible':'✖ Regreso NO factible'}</span>`}
+async function pickPoint(r,c,name,sol){
+  if(phase==='evac'||phase==='done'||phase==='wait')return planInfo(null,'No se puede cambiar el destino '+(phase==='evac'?'durante una evacuación':'ahora'));
+  planInfo(null,'Calculando ruta…');
+  let res;try{res=await (await fetch(`/plan?goal=${r},${c}`)).json()}catch(e){return planInfo(null,'Sin conexión con el motor de rutas')}
+  if(!res.ok||!res.found)return planInfo(null,'✖ '+(res.error||'El motor no encontró ruta segura hasta ese punto'));
+  const g=res.snapped;custom={id:'X',custom:true,name,sol,site:null,row:g.row,col:g.col,ll:RC2LL(g.row,g.col),path:toPath(res.outbound.route.path),
+    out:res.outbound.sim,inb:res.inbound.sim,feasible:res.return_feasible,alerts:res.alerts};
+  pickMark.setLatLng(custom.ll).setOpacity(1);renderStops();select('X')}
+function select(id){const s=allStops().find(x=>x.id===id);if(!s)return;
+  if(phase==='evac'||phase==='done'||phase==='wait'){renderStops();return}
+  const here=curPos()[0];stop=s;renderStops();planInfo(s);
+  if(phase==='idle'){path=stop.path;drawRoute();render();return}
+  // en plena EVA: el bus recalcula desde la posición actual hacia el nuevo objetivo
+  const [r,c]=LL2RC(here);walked.push(here);phase='wait';wantGoal={row:s.row,col:s.col};
+  cmd({type:'position',row:r,col:c}).then(()=>cmd({type:'set_goal',...wantGoal}));drawRoute();render()}
+function drawRoute(){routeLayer.clearLayers();const p=phase==='idle'?stop.path:path;
+  for(let i=1;i<p.length;i++){const s=p[i][3];L.polyline([ll2(p[i-1]),ll2(p[i])],{color:s>15?'#ff9f0a':s>8?'#ffd60a':'#30d158',weight:5,opacity:.95}).addTo(routeLayer)}
+  pov.setView(stop.ll,16);povMark.setLatLng(stop.ll);
+  $('povtxt').textContent=stop.sol?`Curiosity pasó por aquí el sol ${stop.sol}${stop.site?' (sitio '+stop.site+')':''}. Vista orbital HiRISE.`:'Punto elegido por el astronauta. Vista orbital HiRISE.'}
+renderStops();
+$('stops').onchange=e=>select(e.target.value);
+async function startEVA(){if(phase!=='idle')return;phase='wait';wantGoal={row:stop.row,col:stop.col};walked=[ref];met=0;rev=null;plan=null;
+  storm=rad=comms=false;['storm','rad','comms'].forEach(id=>$(id).classList.remove('on'));
+  await fetch('/bus/reset',{method:'POST',body:JSON.stringify(wantGoal)}).catch(()=>{})} // EVA nueva: consumibles completos
+function adoptPlan(pl){ // plan nuevo del bus: seguirlo desde el punto más cercano a la posición actual
+  plan=pl.result;if(!plan||!plan.found)return;const g=plan.goal;
+  const active=['out','ret','evac'].includes(phase)||(phase==='wait'&&sameRC(g,wantGoal))||(phase==='work'&&isRef(g));
+  if(!active)return;
+  const np=toPath(plan.outbound.route.path),cur=curPos()[0];let k=0,best=1e9;np.forEach((q,i)=>{const d=hav(cur,q);if(d<best){best=d;k=i}});
+  path=np;seg=legFrom(np,plan.outbound.sim);idx=k;frac=0;wantGoal=null;
+  phase=isRef(g)?((storm||rad||sos)?'evac':'ret'):'out';drawRoute()}
+// ---------- base de control: SOS, órdenes y bitácora ----------
+let sos=null,sosAck=false,btnSeq=0,logLines=[],lastPhase=null,lastAl='';
+const hms=t=>{t=Math.floor(t);return [t/3600|0,(t/60|0)%60,t%60].map(v=>String(v).padStart(2,'0')).join(':')};
+function logEv(text,kind=''){logLines.unshift({t:met,text,kind});logLines=logLines.slice(0,80);
+  $('blog').innerHTML=logLines.map(l=>`<div class="${l.kind}"><span class="t">${hms(l.t)}</span>${l.text}</div>`).join('')}
+function orderReturn(why){ // la base ordena volver: el bus replanifica hacia el refugio desde la posición actual
+  if(!['out','work'].includes(phase))return;const here=curPos()[0],[r,c]=LL2RC(here);walked.push(here);
+  phase='wait';wantGoal={row:REF.row,col:REF.col};cmd({type:'position',row:r,col:c}).then(()=>cmd({type:'set_goal',...wantGoal}));logEv('Orden de regreso al refugio · '+why,'bad')}
+function triggerSOS(src){if(sos)return;sos={t:met,ll:curPos()[0],src};sosAck=false;orderReturn('SOS')}
+function cancelSOS(who){if(!sos)return;sos=null;sosAck=false;logEv('Emergencia cerrada por '+who,'ok')}
+function execOrder(type){ // órdenes de la base (locales o llegadas desde la otra pantalla)
+  if(type==='ret')orderReturn('orden de la base');else if(['storm','rad','comms'].includes(type))$(type).click();
+  else if(type==='sos')triggerSOS('simulado');else if(type==='ack'){if(sos)sosAck=true}else if(type==='close')cancelSOS('la base');render()}
+const baseOrder=type=>OBS?fetch('/eva/orden',{method:'POST',body:JSON.stringify({type})}).catch(()=>{}):execOrder(type);
+let ordSeq=null;async function pollOrders(){try{const r=await (await fetch('/eva/ordenes?since='+(ordSeq??0))).json();
+  if(ordSeq!==null)r.orders.forEach(o=>execOrder(o.type));ordSeq=r.seq}catch(e){}} // la primera lectura solo se pone al día
+if(!OBS)setInterval(pollOrders,400);
+async function pollWatch(){try{const r=await (await fetch('/reloj?since='+btnSeq)).json();
+  $('bwatch').textContent=r.open?'conectado':'desconectado';
+  for(const e of r.events){btnSeq=Math.max(btnSeq,e.seq);if(OBS)continue;if(e.button==='SOS')triggerSOS('botón del reloj');else if(e.button==='CANCEL')cancelSOS('el astronauta (reloj)')}}catch(e){}}
+setInterval(pollWatch,300);
+async function poll(){if(OBS)return;try{const s=await (await fetch('/bus'+(rev!=null?'?rev='+rev:''))).json();busOk=s.connected;tele=s.telemetry;
+  if(s.route){rev=s.route.revision;const r=s.route.resources;o2=r.o2_remaining_kg;bat=r.battery_remaining_wh;dose=r.cumulative_dose_msv;adoptPlan(s.route)}}catch(e){busOk=false}}
+setInterval(poll,250);poll();
+const post=q=>{lastPost=performance.now();cmd({type:'position',row:q[4],col:q[5]})};
+const back=()=>phase==='ret'||phase==='evac';
+function curPos(){
+  if(phase==='idle'||phase==='done')return [ref,null,phase==='idle'?stop.path:path];
+  if(phase==='work')return [stop.ll,null,path];if(phase==='wait')return [walked[walked.length-1],null,path];
+  const a=path[Math.min(idx,path.length-1)],b=path[Math.min(idx+1,path.length-1)];return [[a[0]+(b[0]-a[0])*frac,a[1]+(b[1]-a[1])*frac],ll2(path[Math.min(idx+12,path.length-1)]),path]}
+function remainingReturn(){if(phase==='idle'||phase==='done')return 0;
+  if(back()&&seg.length)return seg.slice(idx).reduce((s,x)=>s+x.t,0)-(seg[idx]?seg[idx].t*frac:0);
+  return tele&&tele.ttr_s!=null?tele.ttr_s:0} // TTR del motor (tramo de regreso)
+function step(dt){met+=dt;if(phase==='idle'||phase==='done'||phase==='wait')return;
+  if(phase==='work'){dwell-=dt;if(dwell<=0){phase='wait';wantGoal={row:REF.row,col:REF.col};cmd({type:'set_goal',...wantGoal})}return}
+  let left=dt;while(left>0&&idx<seg.length){const s=seg[idx],use=Math.min(s.t*(1-frac),left);frac+=use/s.t;left-=use;if(frac>=1-1e-9){idx++;frac=0;walked.push(ll2(path[idx]))}}
+  const q=path[Math.min(idx,path.length-1)];
+  if(idx>=seg.length){post(q);if(isRef(plan.goal)){phase='done';drawRoute()}else{phase='work';dwell=600}}
+  else if(performance.now()-lastPost>1000)post(q)} // posición al bus ~1 vez/s: recalcula ruta y descuenta recursos
+// ---------- render ----------
+const fmt=s=>{s=Math.max(0,Math.round(s));return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')};
+function bearing(a,b){const r=Math.PI/180,y=Math.sin((b[1]-a[1])*r)*Math.cos(b[0]*r),x=Math.cos(a[0]*r)*Math.sin(b[0]*r)-Math.sin(a[0]*r)*Math.cos(b[0]*r)*Math.cos((b[1]-a[1])*r);return (Math.atan2(y,x)/r+360)%360}
+const FL={STORM:'TORMENTA',RAD_PEAK:'PICO RADIACIÓN',O2_LOW:'O₂ BAJO',BATT_LOW:'BATERÍA BAJA',COMMS_LOST:'SIN ENLACE',ROUTE_STALE:'RECALCULANDO',EVA_ABORT:'ABORTAR EVA'};
+function flags(){const f=tele?tele.flag_names.map(n=>FL[n]||n):[];if(!busOk)f.unshift('SIN MOTOR');if(sos)f.unshift('SOS ASTRONAUTA');return f} // el backend decide las alertas
+const soft=x=>x==='SIN ENLACE'||x==='RECALCULANDO';
+function render(){
+  const o=o2/P.o2_capacity_kg,b=bat/P.batt_capacity_wh,ttr=remainingReturn(),[pos,next,p]=curPos(),fl=flags();
+  const h=Math.floor(met/3600),m=Math.floor(met/60)%60,s=Math.floor(met)%60;$('met').textContent=`MET ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  $('o2').textContent=(o*100).toFixed(1)+'%';$('o2b').style.width=o*100+'%';$('o2b').style.background=o<P.o2_low?'var(--bad)':'var(--ok)';
+  $('bat').textContent=(b*100).toFixed(1)+'%';$('batb').style.width=b*100+'%';$('batb').style.background=b<P.batt_low?'var(--bad)':'var(--ok)';
+  $('dose').textContent=(dose*1000).toFixed(1)+' µSv';$('ttr').textContent=fmt(ttr);
+  $('alerts').innerHTML=fl.map(x=>`<span class="pill ${soft(x)?'warn':'bad'}">${x}</span>`).join(' ');
+  $('be').className='pill '+(busOk?'ok':'bad');$('be').textContent=busOk?'MOTOR OK':'SIN MOTOR';$('be').title='plan rev '+(rev??'–');
+  const go=$('go');go.disabled=!['idle','done'].includes(phase);go.textContent={idle:'▶ Iniciar EVA',done:'↻ Nueva EVA'}[phase]||'EVA en curso · '+stateTxt();
+  const tb=$('tsos');tb.classList.toggle('on',!!sos);tb.classList.toggle('ack',!!sos&&sosAck);
+  $('tsostxt').innerHTML=sos?(sosAck?'BASE OK<small>MANTENER: CANCELAR</small>':'ENVIADO<small>MANTENER: CANCELAR</small>'):'SOS<small>MANTENER</small>';$('bsos').classList.toggle('on',!!sos);
+  $('link').className='pill '+(comms?'warn':'ok');$('link').textContent=comms?'SIN ENLACE · MODO AUTÓNOMO':'ENLACE HÁBITAT OK';
+  $('state').textContent={idle:'EN REFUGIO',wait:'CALCULANDO RUTA…',out:'IDA → PARADA '+stop.id,work:'MUESTREO '+fmt(dwell),ret:'REGRESO',evac:'EVACUACIÓN',done:'EVA COMPLETADA'}[phase];
+  $('state').className='pill '+(phase==='evac'?'bad':'');
+  astro.setLatLng(pos);trail.setLatLngs(walked.concat([pos]));
+  drawProfile(p,pos);drawWatch(pos,next,o,b,ttr,fl);drawCompass(pos,next);
+  const wp=watchPacket(pos,next,o,b,ttr);drawOled(wp);sendUSB(wp);
+  if(mode==='3d'&&window.V3D)V3D.update(pos,p,walked);
+  lastSnap={phase,met,o,b,dose,ttr,pos,fl,dest:destLabel(),stateTxt:stateTxt(),walked:walked.concat([pos]),route:(phase==='idle'?stop.path:path).map(ll2),
+    planned:phase==='idle',sos,sosAck,busOk,storm,rad,comms,live:true};
+  renderBase(lastSnap)}
+let lastSnap=null;
+if(!OBS)setInterval(()=>{if(lastSnap)fetch('/eva/estado',{method:'POST',body:JSON.stringify(lastSnap)}).catch(()=>{})},500); // la base (otra pantalla) lee esto
+// ---------- panel de la base ----------
+let bmap=null,bAstro,bRoute,bTrail,bSos;
+const stateTxt=()=>({idle:'EN REFUGIO',wait:'CALCULANDO RUTA',out:'IDA',work:'MUESTREO',ret:'REGRESO',evac:'EVACUACIÓN',done:'EVA COMPLETADA'}[phase]);
+function initBaseMap(){bmap=L.map('bmap',{crs:L.CRS.EPSG4326,attributionControl:false,maxZoom:19});
+  L.tileLayer(T+'curiosity_hirise_mosaic'+Q,{maxNativeZoom:16,maxZoom:19}).addTo(bmap);bmap.fitBounds(B);
+  L.rectangle(B,{color:'#64d2ff',weight:1,fill:false,dashArray:'4 4'}).addTo(bmap);
+  L.polyline(M.traverse.map(q=>[q[0],q[1]]),{color:'#ff9f0a',weight:2,opacity:.8,dashArray:'2 6'}).addTo(bmap);
+  L.marker(ref,{icon:L.divIcon({className:'',html:'<div style="background:#64d2ff;color:#000;font-weight:700;border-radius:6px;padding:2px 6px;font-size:11px;white-space:nowrap">⌂ Hábitat</div>'})}).addTo(bmap);
+  bRoute=L.polyline([],{color:'#ffd60a',weight:4}).addTo(bmap);bTrail=L.polyline([],{color:'#fff',weight:3,dashArray:'2 5'}).addTo(bmap);
+  bAstro=L.circleMarker(ref,{radius:8,color:'#000',weight:2,fillColor:'#64d2ff',fillOpacity:1}).addTo(bmap).bindTooltip('EVA-01',{permanent:true,direction:'top',offset:[0,-8]});
+  M.stops.forEach(q=>L.marker(q.ll,{interactive:false,icon:L.divIcon({className:'',html:`<div style="background:#ffd60a;color:#000;font-weight:700;border-radius:50%;width:20px;height:20px;display:grid;place-items:center;font-size:12px">${q.id}</div>`,iconSize:[20,20],iconAnchor:[10,10]})}).addTo(bmap))}
+// ---------- sonidos de advertencia (Web Audio, sin archivos) ----------
+let AC=null,sndOn=true;try{sndOn=localStorage.getItem('evaSnd')!=='0'}catch(e){}
+const unlock=()=>{try{AC=AC||new (window.AudioContext||window.webkitAudioContext)();if(AC.state==='suspended')AC.resume()}catch(e){}}; // el navegador exige un toque antes de sonar
+['pointerdown','keydown'].forEach(ev=>addEventListener(ev,unlock,{capture:true}));
+function tone(f,t,d,type='sine',g=.22,f2=null){const o=AC.createOscillator(),v=AC.createGain(),t0=AC.currentTime+t;o.type=type;o.frequency.setValueAtTime(f,t0);
+  if(f2)o.frequency.linearRampToValueAtTime(f2,t0+d);v.gain.setValueAtTime(0,t0);v.gain.linearRampToValueAtTime(g,t0+.012);v.gain.setValueAtTime(g,t0+Math.max(.013,d-.03));v.gain.linearRampToValueAtTime(0,t0+d);
+  o.connect(v).connect(AC.destination);o.start(t0);o.stop(t0+d+.02)}
+const SND={ // cada alerta tiene un patrón distinto para reconocerla sin mirar
+  sos:()=>{let t=0;[.09,.09,.09,.26,.26,.26,.09,.09,.09].forEach(d=>{tone(880,t,d,'square',.2);t+=d+.08})},      // · · · — — — · · ·
+  storm:()=>[0,.55].forEach(t=>tone(620,t,.45,'sawtooth',.16,260)),                                                   // barrido que baja
+  rad:()=>{let t=0;for(let i=0;i<14;i++){tone(1900,t,.018,'square',.2);t+=.03+Math.random()*.09}},                  // chasquidos tipo Geiger
+  o2:()=>[0,.18,.36].forEach(t=>tone(1250,t,.1,'sine',.3)),                                                           // tres pitidos agudos
+  bat:()=>[0,.3].forEach(t=>tone(330,t,.2,'triangle',.3)),                                                            // dos pitidos graves
+  comms:()=>{tone(700,0,.16,'sine',.25);tone(520,.2,.16,'sine',.25);tone(380,.4,.24,'sine',.25)},                     // escalera que baja
+  evac:()=>[0,.32,.64].forEach(t=>{tone(820,t,.15,'square',.18);tone(610,t+.16,.15,'square',.18)}),                   // sirena de dos tonos
+  ok:()=>{tone(660,0,.12);tone(880,.13,.12);tone(1100,.26,.2)},                                                       // campanita que sube
+  arrive:()=>{tone(784,0,.14);tone(1047,.16,.22)}};
+function play(n){if(!sndOn||!AC||AC.state!=='running'||!SND[n])return;SND[n]()}
+const FLSND={'TORMENTA':'storm','PICO RADIACIÓN':'rad','O₂ BAJO':'o2','BATERÍA BAJA':'bat','SIN ENLACE':'comms','ABORTAR EVA':'evac'};
+const SNDGAP=1500,SNDLEN={sos:2300+SNDGAP,storm:1000+SNDGAP,rad:1000+SNDGAP,o2:500+SNDGAP,bat:500+SNDGAP,evac:950+SNDGAP}; // duración de cada patrón + pausa de 1,5 s
+let sndPrev=null,sndNext=0,sndIdx=0;
+function alertSounds(S){ // suena al aparecer cada alerta y se repite en bucle mientras dure el peligro
+  const now=performance.now(),k=S.sos?(S.sosAck?'ack':'on'):'',cur={fl:S.fl.join('|'),k,phase:S.phase};
+  const loop=[]; // todo lo que sigue activo se repite, también dentro del refugio
+  if(k==='on')loop.push('sos');
+  S.fl.forEach(x=>{const n=FLSND[x];if(n&&n!=='comms'&&!loop.includes(n))loop.push(n)});if(S.phase==='evac'&&!loop.includes('evac'))loop.push('evac');
+  if(sndPrev){const old=sndPrev.fl.split('|');let q=null;
+    S.fl.forEach(x=>{if(FLSND[x]&&!old.includes(x)&&!q)q=FLSND[x]});
+    if(S.phase!==sndPrev.phase){if(S.phase==='evac')q=q||'evac';else if(S.phase==='work'||S.phase==='done')q=q||'arrive'}
+    if(k!==sndPrev.k)q=k==='on'?'sos':'ok';
+    if(q){play(q);sndNext=now+(SNDLEN[q]||900)}
+    else if(loop.length&&now>=sndNext){const n=loop[sndIdx++%loop.length];play(n);sndNext=now+SNDLEN[n]}} // varias alertas: se turnan
+  sndPrev=cur}
+let lastSosK='';
+function renderBase(S){ // S: estado de la EVA (local, o recibido del servidor en la pantalla de la base)
+  if(S.live){alertSounds(S);
+    if(S.phase!==lastPhase){logEv('Estado: '+S.stateTxt+(S.phase==='out'?' → '+S.dest:''),S.phase==='evac'?'bad':S.phase==='done'?'ok':'');lastPhase=S.phase}
+    const al=S.fl.filter(x=>x!=='RECALCULANDO'&&x!=='SOS ASTRONAUTA').join(', ');if(al!==lastAl){if(al)logEv('Alertas: '+al,'bad');else if(lastAl)logEv('Sin alertas','ok');lastAl=al}
+    const k=S.sos?(S.sosAck?'ack':'on'):'';
+    if(k!==lastSosK){if(k==='on')logEv('🆘 SOS recibido · origen: '+S.sos.src,'bad');else if(k==='ack')logEv('La base confirmó la recepción del SOS (el reloj muestra BASE OK)','ok');else logEv('Emergencia cerrada','ok');lastSosK=k}}
+  if($('base').style.display==='none')return;
+  if(!bmap)initBaseMap();
+  $('bmet').textContent='MET '+hms(S.met);$('bbe').className='pill '+(S.busOk?'ok':'bad');$('bbe').textContent=S.busOk?'MOTOR OK':'SIN MOTOR';
+  $('blive').className='pill '+(S.live?'ok':'bad');$('blive').textContent=S.live?'EN VIVO':'SIN DATOS DEL ASTRONAUTA';
+  $('balerts').innerHTML=S.fl.map(x=>`<span class="pill ${soft(x)?'warn':'bad'}">${x}</span>`).join(' ');
+  $('bstate').textContent=S.stateTxt;$('bdest').textContent=['ret','evac','done'].includes(S.phase)?'Refugio':S.dest;
+  $('bdist').textContent=Math.round(hav(S.pos,ref))+' m';$('bttr').textContent=fmt(S.ttr);
+  $('bo2').textContent=(S.o*100).toFixed(1)+'%';$('bo2b').style.width=S.o*100+'%';$('bo2b').style.background=S.o<P.o2_low?'var(--bad)':'var(--ok)';
+  $('bbat').textContent=(S.b*100).toFixed(1)+'%';$('bbatb').style.width=S.b*100+'%';$('bbatb').style.background=S.b<P.batt_low?'var(--bad)':'var(--ok)';
+  $('bdose').textContent=(S.dose*1000).toFixed(1)+' µSv';
+  $('bstorm').classList.toggle('on',!!S.storm);$('brad').classList.toggle('on',!!S.rad);
+  bAstro.setLatLng(S.pos);bTrail.setLatLngs(S.walked);bRoute.setLatLngs(S.route);bRoute.setStyle({dashArray:S.planned?'6 8':null,opacity:S.planned?.6:1});
+  const ban=$('sosban');ban.classList.toggle('on',!!S.sos);ban.classList.toggle('ack',!!S.sosAck);$('sosack').style.display=S.sosAck?'none':'';
+  if(S.sos){$('sostxt').textContent=`SOS DEL ASTRONAUTA · ${S.sos.src} · MET ${hms(S.sos.t)} · a ${Math.round(hav(S.sos.ll,ref))} m del hábitat`+(S.sosAck?' · recepción confirmada':'');
+    if(!bSos)bSos=L.marker(S.sos.ll,{icon:L.divIcon({className:'',html:'<div style="background:#ff453a;color:#fff;font-weight:800;border-radius:8px;padding:2px 6px;white-space:nowrap">🆘 SOS</div>'})}).addTo(bmap)}
+  else if(bSos){bSos.remove();bSos=null}}
+// pantalla de la base: lee el estado que publica la tablet del astronauta
+let obsLast={phase:'idle',met:0,o:1,b:1,dose:0,ttr:0,pos:ref,fl:[],dest:'—',stateTxt:'SIN DATOS',walked:[ref],route:[],sos:null,sosAck:false,busOk:false,live:false};
+async function obsTick(){try{const r=await (await fetch('/eva/estado')).json();
+  if(r.state&&r.age<4){obsLast=r.state;met=obsLast.met}else obsLast={...obsLast,live:false,stateTxt:'SIN DATOS'}}catch(e){obsLast={...obsLast,live:false}}
+  renderBase(obsLast)}
+$('fs').onclick=()=>{const d=document;if(d.fullscreenElement)d.exitFullscreen();else d.documentElement.requestFullscreen().then(()=>{try{screen.orientation.lock('landscape').catch(()=>{})}catch(e){}}).catch(()=>{})};
+document.addEventListener('fullscreenchange',()=>{$('fs').classList.toggle('on',!!document.fullscreenElement);setTimeout(()=>{map.invalidateSize();if(window.V3D)V3D.resize();if(bmap)bmap.invalidateSize()},300)});
+// Botón SOS de la tablet: mantener 1,5 s (igual que el botón del reloj)
+(()=>{const b=$('tsos');let t0=0,raf=0;
+  const stop=()=>{t0=0;cancelAnimationFrame(raf);b.style.setProperty('--p',0)};
+  const tick=()=>{if(!t0)return;const k=(performance.now()-t0)/1500;
+    if(k>=1){stop();if(sos)cancelSOS('el astronauta (tablet)');else triggerSOS('botón de la tablet');render();return}b.style.setProperty('--p',k);raf=requestAnimationFrame(tick)};
+  b.addEventListener('pointerdown',e=>{e.preventDefault();e.stopPropagation();b.setPointerCapture(e.pointerId);t0=performance.now();tick()});
+  ['pointerup','pointercancel','pointerleave'].forEach(ev=>b.addEventListener(ev,stop));
+  b.addEventListener('click',e=>e.stopPropagation());b.addEventListener('contextmenu',e=>e.preventDefault())})();
+$('bret').onclick=()=>{baseOrder('ret');if(OBS)logEv('La base ordena regresar al refugio','bad')};
+$('bstorm').onclick=()=>{baseOrder('storm');if(OBS)logEv('La base cambia la alerta de tormenta','bad')};
+$('brad').onclick=()=>{baseOrder('rad');if(OBS)logEv('La base cambia la alerta de radiación','bad')};
+$('bsos').onclick=()=>baseOrder('sos');
+$('sosack').onclick=()=>baseOrder('ack');
+$('soscancel').onclick=()=>baseOrder('close');
+const sndBtn=()=>{$('snd').classList.toggle('on',sndOn);$('snd').textContent=sndOn?'🔊 Sonido':'🔇 Silencio'};sndBtn();
+$('snd').onclick=()=>{sndOn=!sndOn;try{localStorage.setItem('evaSnd',sndOn?'1':'0')}catch(e){}sndBtn();if(sndOn){unlock();play('ok')}};
+$('sndtest').onclick=e=>{const n=e.target.dataset.s;if(n){unlock();const was=sndOn;sndOn=true;play(n);sndOn=was}};
+$('simbtn').onclick=()=>{const b=$('simbox'),on=b.style.display==='none';b.style.display=on?'':'none';$('simbtn').classList.toggle('on',on)};
+function drawProfile(p,pos){const c=$('prof'),r=c.getBoundingClientRect();if(!r.width)return;c.width=r.width*devicePixelRatio;c.height=r.height*devicePixelRatio;
+  const g=c.getContext('2d');g.scale(devicePixelRatio,devicePixelRatio);const W=r.width,H=r.height,pad=34;
+  const d=[0];for(let i=1;i<p.length;i++)d.push(d[i-1]+hav(p[i-1],p[i]));const ev=p.map(x=>x[2]),lo=Math.min(...ev)-2,hi=Math.max(...ev)+2,D=d[d.length-1]||1;
+  const X=v=>pad+(W-pad-10)*v/D,Y=e=>H-22-(H-40)*(e-lo)/(hi-lo);
+  g.fillStyle='rgba(235,240,250,.7)';g.font='11px system-ui';g.fillText('Perfil de elevación de la ruta  ·  '+Math.round(D)+' m  ·  desnivel '+Math.round(hi-lo-4)+' m',pad,14);
+  g.fillText(Math.round(hi)+' m',2,Y(hi)+4);g.fillText(Math.round(lo)+' m',2,Y(lo));
+  for(let i=1;i<p.length;i++){const s=p[i][3];g.strokeStyle=s>15?'#ff9f0a':s>8?'#ffd60a':'#30d158';g.lineWidth=2.5;g.beginPath();g.moveTo(X(d[i-1]),Y(ev[i-1]));g.lineTo(X(d[i]),Y(ev[i]));g.stroke()}
+  let k=0,best=1e9;p.forEach((q,i)=>{const dd=Math.abs(q[0]-pos[0])+Math.abs(q[1]-pos[1]);if(dd<best){best=dd;k=i}});
+  g.fillStyle='#64d2ff';g.beginPath();g.arc(X(d[k]),Y(ev[k]),5,0,7);g.fill()}
+function arc(r,v,col){const a=Math.max(0.0001,Math.min(v,1))*270,s=135,e=s+a,R=Math.PI/180,c=162;
+  return `<path d="M${c+r*Math.cos(s*R)} ${c+r*Math.sin(s*R)} A${r} ${r} 0 1 1 ${c+r*Math.cos(405*R)} ${c+r*Math.sin(405*R)}" stroke="#1a1a1a" stroke-width="10" fill="none" stroke-linecap="round"/>
+  <path d="M${c+r*Math.cos(s*R)} ${c+r*Math.sin(s*R)} A${r} ${r} 0 ${a>180?1:0} 1 ${c+r*Math.cos(e*R)} ${c+r*Math.sin(e*R)}" stroke="${col}" stroke-width="10" fill="none" stroke-linecap="round"/>`}
+function drawWatch(pos,next,o,b,ttr,fl){
+  const alert=fl.some(x=>!soft(x));$('wglass').classList.toggle('alert',alert);
+  const tgt=phase==='out'?stop.ll:ref,dist=(phase==='idle'||phase==='done')?0:hav(pos,tgt),brg=next?bearing(pos,next):0,evac=phase==='evac';
+  const main=fl.filter(x=>!soft(x))[0]||({idle:'LISTO',wait:'CALCULANDO',out:'→ PARADA '+stop.id,work:'MUESTREO',ret:'→ REFUGIO',evac:'EVACUAR',done:'FIN EVA'}[phase]);
+  const t=(x,y,sz,col,txt,w=700)=>`<text x="${x}" y="${y}" fill="${col}" font-size="${sz}" font-weight="${w}" text-anchor="middle" font-family="system-ui">${txt}</text>`;
+  $('wsvg').innerHTML=arc(150,o,o<P.o2_low?'#ff453a':'#30d158')+arc(136,b,b<P.batt_low?'#ff453a':'#64d2ff')+
+   t(162,62,17,alert?'#ff453a':'#ffd60a',main,800)+t(162,88,11,'#ff453a','N',800)+t(112,132,11,'#8a94a3','O')+t(212,132,11,'#8a94a3','E')+
+   `<g transform="translate(162 128) rotate(${brg})"><path d="M0 -34 L18 14 L0 4 L-18 14Z" fill="${evac?'#ff453a':'#fff'}"/></g>`+
+   `<text x="162" y="190" fill="#fff" font-size="40" font-weight="800" text-anchor="middle" font-family="system-ui">${Math.round(dist)}<tspan font-size="16" fill="#8a94a3"> m</tspan></text>`+
+   t(162,214,13,'#8a94a3',`RUMBO ${Math.round(brg)}°  ·  TTR ${fmt(ttr)}`,400)+
+   t(92,250,15,o<P.o2_low?'#ff453a':'#30d158',`O₂ ${Math.round(o*100)}%`)+t(232,250,15,b<P.batt_low?'#ff453a':'#64d2ff',`BAT ${Math.round(b*100)}%`)+
+   t(162,276,13,'#8a94a3',`☢ ${(dose*1000).toFixed(1)} µSv${comms?'  ·  SIN ENLACE':''}`,400)}
+function drawCompass(pos,next){
+  const az=(mode==='3d'&&window.V3D)?V3D.heading():0,brg=next?bearing(pos,next):null,c=62,R=Math.PI/180;
+  let ticks='';for(let a=0;a<360;a+=15){const big=a%90===0,r1=big?44:47;
+    ticks+=`<line x1="${c+r1*Math.sin(a*R)}" y1="${c-r1*Math.cos(a*R)}" x2="${c+52*Math.sin(a*R)}" y2="${c-52*Math.cos(a*R)}" stroke="${a===0?'#ff453a':'rgba(255,255,255,.55)'}" stroke-width="${big?2:1}"/>`}
+  const Lb=(txt,a,col)=>{const x=c+35*Math.sin(a*R),y=c-35*Math.cos(a*R);return `<text x="${x}" y="${y+4}" fill="${col}" font-size="11" font-weight="800" text-anchor="middle" font-family="system-ui" transform="rotate(${az} ${x} ${y})">${txt}</text>`};
+  $('csvg').innerHTML=`<g transform="rotate(${-az} ${c} ${c})">${ticks}${Lb('N',0,'#ff453a')}${Lb('E',90,'#fff')}${Lb('S',180,'#fff')}${Lb('O',270,'#fff')}</g>`+
+   (brg===null?'':`<g transform="rotate(${brg-az} ${c} ${c})"><path d="M${c} ${c-26} L${c+7} ${c+2} L${c} ${c-3} L${c-7} ${c+2}Z" fill="${phase==='evac'?'#ff453a':'#64d2ff'}"/></g>`)+
+   `<circle cx="${c}" cy="${c}" r="3" fill="#fff"/><text x="${c}" y="${c+24}" fill="#fff" font-size="12" font-weight="700" text-anchor="middle" font-family="system-ui">${brg===null?'—':Math.round(brg)+'°'}</text>`}
+// ---------- reloj físico: ESP32 + OLED por Web Serial ----------
+function watchPacket(pos,next,o,b,ttr){
+  const brg=next?bearing(pos,next):-1,az=(mode==='3d'&&window.V3D)?V3D.heading():0;
+  const tgt=phase==='out'?stop.ll:ref,dist=(phase==='idle'||phase==='done')?0:hav(pos,tgt);
+  const tf=tele?tele.flags:0,flags=(tf&0x1F)|((phase==='evac'||tf&64)?32:0)|(sos?64:0)|(sos&&sosAck?128:0); // bits 0-4 iguales; evacuación/abortar -> bit 5
+  const crit=[[1,'TORMENTA'],[2,'RADIACION'],[4,'O2 BAJO'],[8,'BAT BAJA'],[32,'EVACUAR']].find(([k])=>flags&k);
+  const text=sos?(sosAck?'BASE OK':'SOS ACTIVO'):crit?crit[1]:({idle:'LISTO',wait:'CALCULANDO',out:'>PARADA '+stop.id,work:'MUESTREO',ret:'>REFUGIO',evac:'EVACUAR',done:'FIN EVA'}[phase]);
+  return {brg,az,dist,o2:Math.round(o*100),bat:Math.round(b*100),ttr:Math.round(ttr),dose10:Math.round(dose*1e4),flags,text}}
+let usbPort=null,usbWriter=null,usbLast=0,usbSent=0;
+$('usb').onclick=async()=>{
+  const info=$('usbinfo');
+  if(!('serial' in navigator)){info.textContent='Este navegador no soporta Web Serial (usa Chrome o Edge).';return}
+  try{usbPort=await navigator.serial.requestPort();await usbPort.open({baudRate:115200});usbWriter=usbPort.writable.getWriter();
+    $('usb').classList.add('on');$('usb').textContent='⚡ Reloj USB conectado';info.textContent='Enviando al ESP32 a 10 Hz';
+    usbPort.addEventListener('disconnect',()=>{usbWriter=null;usbPort=null;$('usb').classList.remove('on');$('usb').textContent='⚡ Conectar reloj USB';info.textContent='Reloj USB desconectado'});
+  }catch(e){info.textContent='No se pudo abrir el puerto: '+e.message}};
+// Puente USB del servidor local (servidor.py): sin elegir puerto en Chrome.
+let bridgeBusy=false;
+const SID=Math.random().toString(36).slice(2)+Date.now().toString(36); // esta pantalla toma el control del reloj
+fetch('/estado').then(r=>r.ok?r.json():null).then(async st=>{if(!st||!st.tty||OBS)return;
+  await fetch('/reloj/tomar',{method:'POST',body:SID}).catch(()=>{});
+  usbWriter={write:b=>{if(bridgeBusy)return Promise.resolve();bridgeBusy=true;
+    return fetch('/w',{method:'POST',body:b,headers:{'X-Sesion':SID}}).then(r=>{bridgeBusy=false;
+      if(r.status===409)throw new Error('otra pantalla tomó el control del reloj (recarga para recuperarlo)');
+      if(!r.ok&&r.status!==400)throw new Error('puerto '+st.tty+' no disponible')}).catch(e=>{bridgeBusy=false;throw e})}};
+  $('usb').classList.add('on');$('usb').textContent='⚡ Reloj USB conectado';$('usbinfo').textContent='Puente local → '+st.tty+' a 10 Hz'}).catch(()=>{});
+function sendUSB(w){if(!usbWriter)return;const now=performance.now();if(now-usbLast<100)return;usbLast=now;
+  const line=`$W,${w.brg.toFixed(0)},${w.az.toFixed(0)},${w.dist.toFixed(0)},${w.o2},${w.bat},${w.ttr},${w.dose10},${w.flags},${w.text.replace(/,/g,' ')}\n`;
+  usbWriter.write(new TextEncoder().encode(line)).then(()=>{if(++usbSent%50===0)$('usbinfo').textContent='Enviando al ESP32 · '+usbSent+' tramas'}).catch(e=>{usbWriter=null;$('usbinfo').textContent='Error de envío: '+e.message})}
+function drawOled(w){ // réplica del dibujo del ESP32 (128x64 monocromo)
+  const c=$('oled').getContext('2d');c.fillStyle='#000';c.fillRect(0,0,128,64);c.strokeStyle=c.fillStyle='#fff';c.lineWidth=1;
+  const cx=31.5,cy=32.5,r=30,R=Math.PI/180;c.beginPath();c.arc(cx,cy,r,0,7);c.stroke();
+  for(let a=0;a<360;a+=30){const t=(a-w.az)*R,r1=a%90===0?r-5:r-3;c.beginPath();c.moveTo(cx+r1*Math.sin(t),cy-r1*Math.cos(t));c.lineTo(cx+r*Math.sin(t),cy-r*Math.cos(t));c.stroke()}
+  const tn=-w.az*R;c.font='7px monospace';c.fillText('N',cx+(r-11)*Math.sin(tn)-2,cy-(r-11)*Math.cos(tn)+3);
+  const rr=r-6;
+  const range=[25,50,100,200,500,1000].find(x=>w.dist<=x)||1000;c.font='6px monospace';c.fillText(range>=1000?'1km':range+'m',0,63);
+  if(w.brg>=0){const t=(w.brg-w.az)*R,k=Math.min(w.dist/range,1),tx=cx+rr*k*Math.sin(t),ty=cy-rr*k*Math.cos(t),per=150+650*Math.min(w.dist,200)/200;
+    c.beginPath();c.arc(tx,ty,3,0,7);c.stroke();if(performance.now()%per<per*.6){c.beginPath();c.arc(tx,ty,2,0,7);c.fill()}}
+  c.beginPath();c.moveTo(cx,cy-3);c.lineTo(cx-2,cy+2);c.lineTo(cx+2,cy+2);c.closePath();c.stroke();
+  c.font='bold 9px monospace';c.fillText(w.text,66,8);
+  c.font='bold 17px sans-serif';const ds=String(Math.round(w.dist));c.fillText(ds,66,25);const dw=c.measureText(ds).width;c.font='9px monospace';c.fillText('m',66+dw+2,25);
+  c.font='8px monospace';c.fillText(w.brg>=0?'RUMBO '+Math.round(w.brg)+'°':'RUMBO --',66,33);c.fillText('TTR '+fmt(w.ttr),66,41);
+  c.fillText((w.dose10/10).toFixed(1)+' uSv'+(w.flags&16?' SE':''),66,49);
+  const bar=(y,lab,p)=>{const X=79,W=48,H=6;c.font='6px monospace';c.fillStyle='#fff';c.fillText(lab,66,y+H-1);
+    c.strokeRect(X+.5,y+.5,W-1,H-1);c.fillRect(X+1,y+1,Math.floor((W-2)*p/100),H-2);
+    const t=p+'%',tw=c.measureText(t).width;c.globalCompositeOperation='difference';c.fillText(t,X+(W-tw)/2,y+H-1);c.globalCompositeOperation='source-over'};
+  bar(51,'O2',w.o2);bar(58,'BAT',w.bat);
+  if((w.flags&111)&&Math.floor(performance.now()/400)%2){c.globalCompositeOperation='difference';c.fillRect(0,0,128,64);c.globalCompositeOperation='source-over'}}
+// ---------- controles ----------
+$('go').onclick=()=>{if(phase==='done'){phase='idle';walked=[ref];path=stop.path;idx=0;frac=0;drawRoute();render();return}startEVA();render()};
+const speeds=[1,30,120];$('spd').onclick=()=>{speed=speeds[(speeds.indexOf(speed)+1)%speeds.length];$('spd').textContent='Velocidad ×'+speed};
+function toggle(id,type,get,set){$(id).onclick=()=>{set(!get());$(id).classList.toggle('on',get());cmd({type,active:get()});render()}} // el bus replanifica
+toggle('storm','storm',()=>storm,v=>storm=v);toggle('rad','radiation_peak',()=>rad,v=>rad=v);toggle('comms','comms_lost',()=>comms,v=>comms=v);
+document.querySelectorAll('.top .cap[data-v]').forEach(bt=>bt.onclick=()=>{document.querySelectorAll('.top .cap[data-v]').forEach(x=>x.classList.toggle('on',x===bt));
+  const v=bt.dataset.v;$('tablet').style.display=v==='watch'||v==='base'?'none':'';$('watchwrap').style.display=v==='tablet'||v==='base'?'none':'';
+  $('base').style.display=v==='base'?'':'none';map.invalidateSize();if(window.V3D)V3D.resize();render();if(bmap)bmap.invalidateSize()});
+document.querySelectorAll('.vcap').forEach(bt=>bt.onclick=async()=>{mode=bt.dataset.m;document.querySelectorAll('.vcap').forEach(x=>x.classList.toggle('on',x===bt));
+  const is3=mode==='3d';$('v3d').style.display=is3?'block':'none';$('map').style.visibility=is3?'hidden':'visible';
+  $('legend').style.display=is3?'none':'';$('hint3d').style.display=is3?'block':'none';
+  if(is3){await V3D.init({M,bb,ref});V3D.resize()}else map.invalidateSize();render()});
+drawRoute();render();planInfo(stop);
+if(OBS)document.querySelector('.cap[data-v=base]').click();else if(matchMedia('(max-width:1240px)').matches)document.querySelector('.cap[data-v=tablet]').click();
+if(OBS)setInterval(obsTick,400);
+let last=performance.now();if(!OBS)setInterval(()=>{const now=performance.now(),dt=(now-last)/1000*speed;last=now;step(dt);render()},100);
+})();
+</script>
+<script type="module">
+import * as THREE from 'three';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+const el=document.getElementById('v3d');
+let R,scene,cam,ctl,E,mean=0,routeRef=null,routeMesh,trailMesh,trailLen=-1,astro,inited=null,APP;
+const N=250,STEP=4,EX=1.0; // EX: exageración vertical (1 = real)
+const elevAt=(row,col)=>{row=Math.min(999,Math.max(0,Math.round(row)));col=Math.min(999,Math.max(0,Math.round(col)));return (E[row*1000+col]-mean)*EX};
+const xyz=(row,col,lift=0)=>new THREE.Vector3(col-500,elevAt(row,col)+lift,row-500);
+const llToRC=ll=>{const b=APP.bb;return [(b.north-ll[0])/(b.north-b.south)*1000,(ll[1]-b.west)/(b.east-b.west)*1000]};
+async function texture(){ // mosaico HiRISE z16 de Mars Trek recortado a la zona (?cors=1 evita la caché sin CORS del mapa 2D)
+  const b=APP.bb,z=16,s=180/2**z,r0=Math.floor((90-b.north)/s),r1=Math.floor((90-b.south)/s),c0=Math.floor((b.west+180)/s),c1=Math.floor((b.east+180)/s);
+  const big=document.createElement('canvas');big.width=(c1-c0+1)*256;big.height=(r1-r0+1)*256;const g=big.getContext('2d');g.fillStyle='#6b5040';g.fillRect(0,0,big.width,big.height);
+  const jobs=[];for(let r=r0;r<=r1;r++)for(let c=c0;c<=c1;c++)jobs.push(new Promise(ok=>{const im=new Image();im.crossOrigin='anonymous';
+    im.onload=()=>{g.drawImage(im,(c-c0)*256,(r-r0)*256);ok()};im.onerror=ok;
+    im.src=`https://trek.nasa.gov/tiles/Mars/EQ/curiosity_hirise_mosaic/1.0.0/default/default028mm/${z}/${r}/${c}.png?cors=1`}));
+  await Promise.all(jobs);
+  const x0=((b.west+180)/s-c0)*256,x1=((b.east+180)/s-c0)*256,y0=((90-b.north)/s-r0)*256,y1=((90-b.south)/s-r0)*256;
+  const out=document.createElement('canvas');out.width=out.height=1024;out.getContext('2d').drawImage(big,x0,y0,x1-x0,y1-y0,0,0,1024,1024);
+  const t=new THREE.CanvasTexture(out);t.colorSpace=THREE.SRGBColorSpace;t.anisotropy=8;return t}
+function label(text,color){const c=document.createElement('canvas');c.width=256;c.height=64;const g=c.getContext('2d');
+  g.fillStyle='rgba(20,20,24,.6)';g.beginPath();g.roundRect(4,8,248,48,24);g.fill();g.strokeStyle='rgba(255,255,255,.5)';g.stroke();
+  g.fillStyle=color;g.font='bold 26px system-ui';g.textAlign='center';g.fillText(text,128,42);
+  const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),depthTest:false,sizeAttenuation:false}));sp.scale.set(.13,.0325,1);sp.renderOrder=10;return sp}
+function tube(points,radius,color){if(points.length<2)return null;
+  return new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points),Math.min(800,points.length*2),radius,6,false),new THREE.MeshBasicMaterial({color}))}
+function init(app){if(inited)return inited;APP=app;inited=(async()=>{
+  E=new Float32Array(await (await fetch('elevation.bin')).arrayBuffer());let sum=0;for(const v of E)sum+=v;mean=sum/E.length;
+  R=new THREE.WebGLRenderer({antialias:true});R.toneMapping=THREE.ACESFilmicToneMapping;R.setPixelRatio(devicePixelRatio);el.appendChild(R.domElement);
+  scene=new THREE.Scene();scene.background=new THREE.Color(0xc9a07a);scene.fog=new THREE.Fog(0xc9a07a,1500,4200);
+  cam=new THREE.PerspectiveCamera(45,1,1,8000);cam.position.set(380,520,760);
+  ctl=new OrbitControls(cam,R.domElement);ctl.enableDamping=true;ctl.maxPolarAngle=Math.PI*0.47;ctl.minDistance=40;ctl.maxDistance=2600;
+  scene.add(new THREE.HemisphereLight(0xffe6cc,0x2a1810,0.55));const sun=new THREE.DirectionalLight(0xfff1dd,1.6);sun.position.set(-700,380,-250);scene.add(sun);
+  const geo=new THREE.PlaneGeometry(999,999,N-1,N-1);geo.rotateX(-Math.PI/2);const pos=geo.attributes.position;let mn=1e9;
+  for(let i=0;i<pos.count;i++){const y=elevAt(Math.min(999,Math.floor(i/N)*STEP),Math.min(999,(i%N)*STEP));pos.setY(i,y);mn=Math.min(mn,y)}
+  geo.computeVertexNormals();
+  const floor=new THREE.Mesh(new THREE.PlaneGeometry(9000,9000).rotateX(-Math.PI/2),new THREE.MeshStandardMaterial({color:0x7a5038,roughness:1}));floor.position.y=mn-2;scene.add(floor);
+  const ground=new THREE.Mesh(geo,new THREE.MeshStandardMaterial({color:0xe8b48c,roughness:1,metalness:0}));scene.add(ground);
+  texture().then(t=>{ground.material.map=t;ground.material.needsUpdate=true});
+  const rf=llToRC(APP.ref);const hab=new THREE.Mesh(new THREE.CylinderGeometry(6,6,10,16),new THREE.MeshStandardMaterial({color:0x64d2ff,emissive:0x1a4a60}));
+  hab.position.copy(xyz(rf[0],rf[1],5));scene.add(hab);const lr=label('⌂ Refugio','#64d2ff');lr.position.copy(xyz(rf[0],rf[1],34));scene.add(lr);
+  APP.M.stops.forEach(s=>{const p=xyz(s.row,s.col),cone=new THREE.Mesh(new THREE.ConeGeometry(5,14,12),new THREE.MeshStandardMaterial({color:0xffd60a,emissive:0x664f00}));
+    cone.position.copy(p).add(new THREE.Vector3(0,7,0));cone.rotation.x=Math.PI;scene.add(cone);const l=label('Parada '+s.id,'#ffd60a');l.position.copy(p).add(new THREE.Vector3(0,30,0));scene.add(l)});
+  astro=new THREE.Group();const ball=new THREE.Mesh(new THREE.SphereGeometry(4.5,20,16),new THREE.MeshStandardMaterial({color:0xffffff,emissive:0x2a6a88}));ball.position.y=9;
+  const pole=new THREE.Mesh(new THREE.CylinderGeometry(.6,.6,9,8),new THREE.MeshBasicMaterial({color:0xffffff}));pole.position.y=4.5;astro.add(ball,pole);scene.add(astro);
+  const loop=()=>{requestAnimationFrame(loop);if(el.style.display==='none')return;ctl.update();R.render(scene,cam)};loop();
+  addEventListener('resize',resize)})();return inited}
+function resize(){if(!R)return;const w=el.clientWidth,h=el.clientHeight;if(!w||!h)return;R.setSize(w,h);cam.aspect=w/h;cam.updateProjectionMatrix()}
+function update(pos,path,walked){if(!scene)return;
+  if(path!==routeRef){routeRef=path;if(routeMesh){scene.remove(routeMesh);routeMesh.geometry.dispose()}
+    const pts=path.filter((_,i)=>i%2===0||i===path.length-1).map(q=>{const rc=q.length>=6?[q[4],q[5]]:llToRC(q);return xyz(rc[0],rc[1],2.2)});
+    routeMesh=tube(pts,1.6,0xffd60a);if(routeMesh)scene.add(routeMesh)}
+  if(walked.length!==trailLen){trailLen=walked.length;if(trailMesh){scene.remove(trailMesh);trailMesh.geometry.dispose()}
+    trailMesh=tube(walked.map(ll=>{const [r,c]=llToRC(ll);return xyz(r,c,2.8)}),1.1,0xffffff);if(trailMesh)scene.add(trailMesh)}
+  const [r,c]=llToRC(pos);astro.position.copy(xyz(r,c))}
+function heading(){if(!ctl)return 0;return (360-ctl.getAzimuthalAngle()*180/Math.PI)%360}
+window.V3D={init,update,resize,heading};
+</script></body></html>
