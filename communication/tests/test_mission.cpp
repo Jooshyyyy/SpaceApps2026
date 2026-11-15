@@ -21,13 +21,16 @@ void check(bool condition, const char* expression, int line) {
 }
 #define CHECK(expr) check((expr), #expr, __LINE__)
 
-std::string simulation(double elevation, std::uint8_t flags = 0, bool found = true) {
+std::string simulation(double elevation, std::uint8_t flags = 0, bool found = true,
+                       double o2_remaining = 0.6, double battery_remaining = 62.5) {
     const std::string path = found
         ? "[{\"row\":0,\"col\":0,\"elevation_m\":" + std::to_string(elevation) + "}]"
         : "[]";
     return std::string("{\"ok\":true,\"found\":") + (found ? "true" : "false") +
-           ",\"outbound\":{\"route\":{\"path\":" + path + "}}" +
-           ",\"ttr_s\":12.4,\"o2_fraction\":0.5,\"batt_fraction\":0.25," +
+           ",\"outbound\":{\"route\":{\"path\":" + path + "}," +
+           "\"sim\":{\"o2_kg\":0.1,\"batt_wh\":5.0,\"dose_msv\":0.01}}" +
+           ",\"ttr_s\":12.4,\"o2_remaining_kg\":" + std::to_string(o2_remaining) +
+           ",\"batt_remaining_wh\":" + std::to_string(battery_remaining) + "," +
            "\"dose_total_msv\":0.12,\"flags\":" + std::to_string(flags) + "}";
 }
 
@@ -131,6 +134,28 @@ void test_engine_alerts_are_preserved() {
     CHECK((mission.telemetry(0, 0, 1.0, 1.0).flags & 0x4C) == 0x4C);
 }
 
+void test_movement_consumption_accumulates_and_never_refills() {
+    comms::Mission mission({0, 0}, {1, 1});
+    mission.accept_movement(simulation(-50.0));
+    CHECK(mission.o2_remaining_kg() > 1.09 && mission.o2_remaining_kg() < 1.11);
+    CHECK(mission.battery_remaining_wh() == 245.0);
+    CHECK(mission.cumulative_dose_msv() == 0.01);
+    mission.accept_movement(simulation(-50.0));
+    CHECK(mission.o2_remaining_kg() > 0.99 && mission.o2_remaining_kg() < 1.01);
+    CHECK(mission.battery_remaining_wh() == 240.0);
+    CHECK(mission.cumulative_dose_msv() == 0.02);
+}
+
+void test_low_resource_alerts_use_the_original_eva_capacity() {
+    comms::Mission mission({0, 0}, {1, 1});
+    mission.accept_simulation(simulation(-50.0, 0, true, 0.2, 40.0));
+    const auto frame = mission.telemetry(0, 0, 1.0, 1.0);
+    CHECK((frame.flags & (1u << 2)) != 0); // 0.2 / 1.2 is low oxygen
+    CHECK((frame.flags & (1u << 3)) != 0); // 40 / 250 is low battery
+    CHECK(frame.o2 == 33);                 // 16.7%, encoded in 0.5% units
+    CHECK(frame.batt == 32);               // 16%, encoded in 0.5% units
+}
+
 } // namespace
 
 int main() {
@@ -140,6 +165,8 @@ int main() {
     test_comms_event_does_not_recalculate();
     test_failed_recalculation_stays_stale_and_preserves_last_sim();
     test_engine_alerts_are_preserved();
+    test_movement_consumption_accumulates_and_never_refills();
+    test_low_resource_alerts_use_the_original_eva_capacity();
     std::cout << checks - failures << '/' << checks << " checks passed\n";
     return failures == 0 ? 0 : 1;
 }

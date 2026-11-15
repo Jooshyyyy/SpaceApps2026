@@ -33,11 +33,14 @@ class EngineAdapter {
 public:
     EngineAdapter(std::string engine_path, std::string data_dir);
     std::string info() const;
-    std::string simulate(Point start, Point goal) const;
-    void start_simulation(EngineJob& job, Point start, Point goal) const;
+    std::string simulate(Point start, Point goal, double o2_kg = 1.20,
+                         double battery_wh = 250.0) const;
+    void start_simulation(EngineJob& job, Point start, Point goal, double o2_kg,
+                          double battery_wh) const;
 private:
     std::string run(const std::vector<std::string>& args) const;
-    std::vector<std::string> simulation_args(Point start, Point goal) const;
+    std::vector<std::string> simulation_args(Point start, Point goal, double o2_kg,
+                                              double battery_wh) const;
     std::string engine_path_;
     std::string data_dir_;
 };

@@ -68,8 +68,10 @@ struct Client {
 
 class Bus {
 public:
-    Bus(std::string engine, std::string dir, int port, comms::Point start, comms::Point goal)
-        : adapter_(std::move(engine), std::move(dir)), mission_(start, goal) {
+    Bus(std::string engine, std::string dir, int port, comms::Point start, comms::Point goal,
+        int demo_step_ms)
+        : adapter_(std::move(engine), std::move(dir)), mission_(start, goal),
+          accounted_position_(start), demo_step_ms_(demo_step_ms) {
         info_ = adapter_.info();
         const auto info = eva::Json::parse(info_);
         const auto& aoi = info.at("aoi");
@@ -78,15 +80,18 @@ public:
         dy_ = aoi.at("cell_size_m").at("dy").number();
         dx_ = aoi.at("cell_size_m").at("dx").number();
         validate_point(start); validate_point(goal);
-        mission_.accept_simulation(adapter_.simulate(start, goal));
+        mission_.accept_simulation(adapter_.simulate(
+            start, goal, mission_.o2_remaining_kg(), mission_.battery_remaining_wh()));
         // HELLO's datum must be real, even if the requested goal is a wall.
         const auto sim = eva::Json::parse(mission_.simulation_json());
         if (sim.at("outbound").at("route").at("path").size() == 0) {
-            mission_.accept_simulation(adapter_.simulate(start, start));
+            mission_.accept_simulation(adapter_.simulate(
+                start, start, mission_.o2_remaining_kg(), mission_.battery_remaining_wh()));
             if (eva::Json::parse(mission_.simulation_json()).at("outbound").at("route").at("path").size() == 0) {
                 throw std::runtime_error("start/refuge must be a traversable cell");
             }
-            mission_.accept_simulation(adapter_.simulate(start, goal));
+            mission_.accept_simulation(adapter_.simulate(
+                start, goal, mission_.o2_remaining_kg(), mission_.battery_remaining_wh()));
         }
         listener_.fd = ::socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
         if (listener_.fd < 0) throw std::runtime_error("socket failed");
@@ -101,6 +106,7 @@ public:
         if (::getsockname(listener_.fd, reinterpret_cast<sockaddr*>(&addr), &len) != 0) throw std::runtime_error("getsockname failed");
         port_ = ntohs(addr.sin_port);
         epoch_ = Clock::now(); next_tick_ = epoch_;
+        next_demo_step_ = epoch_ + std::chrono::milliseconds(demo_step_ms_);
     }
     void run() {
         std::cout << "{\"type\":\"listening\",\"host\":\"127.0.0.1\",\"port\":" << port_ << "}" << std::endl;
@@ -125,6 +131,7 @@ public:
             if (pollfds[0].revents & POLLIN) accept_clients();
             complete_engine();
             const auto now = Clock::now();
+            advance_demo(now);
             if (now >= next_tick_) {
                 publish_telemetry();
                 next_tick_ += std::chrono::milliseconds(100);
@@ -143,7 +150,13 @@ private:
     }
     std::string route_update() const {
         return "{\"type\":\"route_update\",\"cause\":" + comms::json_quote(cause_) +
-               ",\"revision\":" + std::to_string(revision_) + ",\"result\":" + mission_.simulation_json() + "}";
+               ",\"revision\":" + std::to_string(revision_) +
+               ",\"resources\":{\"o2_remaining_kg\":" + number(mission_.o2_remaining_kg()) +
+               ",\"battery_remaining_wh\":" + number(mission_.battery_remaining_wh()) +
+               ",\"cumulative_dose_msv\":" + number(mission_.cumulative_dose_msv()) +
+               ",\"projected_o2_fraction_of_initial\":" + number(mission_.projected_o2_fraction()) +
+               ",\"projected_battery_fraction_of_initial\":" + number(mission_.projected_battery_fraction()) +
+               "},\"result\":" + mission_.simulation_json() + "}";
     }
     std::string error(const std::string& message) const {
         auto p = mission_.position();
@@ -206,8 +219,9 @@ private:
             comms::check_json_depth(text);
             const auto doc = eva::Json::parse(text);
             const std::string type(doc.at("type").string());
-            // Validate every field and range before mutating mission state or
-            // cancelling a pending result. Rejected controls preserve revision.
+            // Validate every field and range before mutating mission state.
+            // Accepted updates never cancel a running engine process: the
+            // reactor coalesces them and calculates the newest state next.
             comms::Point p;
             bool active = false;
             if (type == "position" || type == "set_goal") {
@@ -220,29 +234,80 @@ private:
             if (type == "comms_lost") {
                 mission_.set_comms_lost(active);
             } else {
-                job_.reset(); // a newer accepted command supersedes pending work
                 if (type == "position") mission_.set_position(p);
                 else if (type == "set_goal") mission_.set_goal(p);
                 else if (type == "storm") mission_.set_storm(active);
                 else mission_.set_radiation_peak(active);
                 mission_.recalculate(); // idempotent event still refreshes the plan
                 cause_ = type + ((!active && (type == "storm" || type == "radiation_peak")) ? "_clear" : "");
-                job_ = std::make_unique<comms::EngineJob>();
-                adapter_.start_simulation(*job_, mission_.position(), mission_.route_target());
+                ++desired_generation_;
+                start_next_job();
             }
             client.text("{\"type\":\"event_ack\",\"event\":" + comms::json_quote(type) + "}");
         } catch (const std::exception& e) { client.text(error(e.what())); }
     }
+    enum class JobKind { Movement, Plan };
+
+    void start_next_job() {
+        if (job_) return;
+        job_ = std::make_unique<comms::EngineJob>();
+        job_generation_ = desired_generation_;
+        job_start_ = accounted_position_;
+        if (accounted_position_ != mission_.position()) {
+            job_kind_ = JobKind::Movement;
+            job_goal_ = mission_.position();
+        } else {
+            job_kind_ = JobKind::Plan;
+            job_start_ = mission_.position();
+            job_goal_ = mission_.route_target();
+        }
+        adapter_.start_simulation(*job_, job_start_, job_goal_,
+                                  mission_.o2_remaining_kg(), mission_.battery_remaining_wh());
+    }
+
     void complete_engine() {
         if (!job_) return;
         try {
             if (auto result = job_->step()) {
-                mission_.accept_simulation(std::move(*result));
-                job_.reset(); ++revision_;
-                broadcast(route_update());
+                const auto kind = job_kind_;
+                const auto generation = job_generation_;
+                const auto goal = job_goal_;
+                job_.reset();
+                if (kind == JobKind::Movement) {
+                    mission_.accept_movement(*result);
+                    accounted_position_ = goal;
+                    // A newer position may have arrived while this movement
+                    // was evaluated. Only that newest position is retained.
+                    start_next_job();
+                } else if (generation == desired_generation_ &&
+                           job_start_ == mission_.position() && goal == mission_.route_target()) {
+                    mission_.accept_simulation(std::move(*result));
+                    ++revision_;
+                    broadcast(route_update());
+                } else {
+                    start_next_job(); // completed result is stale; do not admit it
+                }
             }
         } catch (const std::exception& e) {
             job_.reset(); broadcast(error(e.what())); // mission remains stale
+        }
+    }
+    void advance_demo(Clock::time_point now) {
+        if (demo_step_ms_ <= 0 || job_ || now < next_demo_step_ || mission_.route_stale()) return;
+        next_demo_step_ = now + std::chrono::milliseconds(demo_step_ms_);
+        try {
+            const auto result = eva::Json::parse(mission_.simulation_json());
+            const auto& path = result.at("outbound").at("route").at("path").items();
+            if (path.size() < 2) return;
+            const auto& next = path[1];
+            const comms::Point p{coordinate(next.at("row"), rows_), coordinate(next.at("col"), cols_)};
+            mission_.set_position(p);
+            mission_.recalculate();
+            cause_ = "demo_position";
+            ++desired_generation_;
+            start_next_job();
+        } catch (const std::exception& e) {
+            broadcast(error(std::string("demo movement failed: ") + e.what()));
         }
     }
     void publish_telemetry() {
@@ -255,24 +320,30 @@ private:
     comms::EngineAdapter adapter_;
     comms::Mission mission_;
     std::unique_ptr<comms::EngineJob> job_;
+    JobKind job_kind_ = JobKind::Plan;
+    comms::Point accounted_position_, job_start_, job_goal_;
     Descriptor listener_;
     std::vector<std::unique_ptr<Client>> clients_;
     std::string info_, cause_ = "initial";
     std::uint64_t revision_ = 1;
+    std::uint64_t desired_generation_ = 0, job_generation_ = 0;
     std::uint16_t seq_ = 0;
     int rows_ = 0, cols_ = 0, port_ = 0;
     double dy_ = 0, dx_ = 0;
+    int demo_step_ms_ = 0;
     Clock::time_point epoch_, next_tick_;
+    Clock::time_point next_demo_step_;
 };
 
 void usage() {
     std::cout << "Mars EVA Edge Bus — local binary WebSocket at 10 Hz\n"
-              << "Usage: eva_bus --dir DIR --engine PATH [--port N] [--start ROW,COL] [--goal ROW,COL]\n"
+              << "Usage: eva_bus --dir DIR --engine PATH [--port N] [--start ROW,COL] [--goal ROW,COL] [--demo-step-ms N]\n"
               << "Defaults: port 8765, start 500,500, goal 600,650. Port 0 selects an available port.\n"
               << "Binds 127.0.0.1 only. Android: adb reverse tcp:8765 tcp:8765\n"
               << "Connect: ws://127.0.0.1:8765/ (native clients; browser Origin rejected).\n"
               << "24-byte binary telemetry; JSON hello, controls, event_ack, route_update, error.\n"
               << "Controls: position/set_goal {row,col}; storm/radiation_peak/comms_lost {active}.\n"
+              << "--demo-step-ms moves one route cell per interval; 0 (default) disables automatic movement.\n"
               << "PLSS telemetry is a planned projection, not measured live suit telemetry.\n"
               << "Engine timeout 5s. Up to 8 clients; 4096-byte unfragmented client messages.\n"
               << "SIGINT/SIGTERM shut down cleanly. Argument/startup errors exit 2 with JSON stderr.\n";
@@ -286,7 +357,8 @@ int main(int argc, char** argv) {
         for (int i = 1; i < argc; ++i) {
             std::string key = argv[i];
             if (key == "--help") { usage(); return 0; }
-            if (key != "--dir" && key != "--engine" && key != "--port" && key != "--start" && key != "--goal") throw std::runtime_error("unknown option: " + key);
+            if (key != "--dir" && key != "--engine" && key != "--port" && key != "--start" &&
+                key != "--goal" && key != "--demo-step-ms") throw std::runtime_error("unknown option: " + key);
             if (++i == argc) throw std::runtime_error("missing option value");
             if (!options.emplace(key, argv[i]).second) throw std::runtime_error("duplicate option: " + key);
         }
@@ -295,7 +367,9 @@ int main(int argc, char** argv) {
         if (port < 0 || port > 65535) throw std::runtime_error("port must be 0..65535");
         const auto start = point(options.contains("--start") ? options.at("--start") : "500,500");
         const auto goal = point(options.contains("--goal") ? options.at("--goal") : "600,650");
-        Bus bus(options.at("--engine"), options.at("--dir"), port, start, goal);
+        const int demo_step_ms = options.contains("--demo-step-ms") ? integer(options.at("--demo-step-ms")) : 0;
+        if (demo_step_ms < 0) throw std::runtime_error("demo-step-ms must be non-negative");
+        Bus bus(options.at("--engine"), options.at("--dir"), port, start, goal, demo_step_ms);
         bus.run();
         return 0;
     } catch (const std::exception& e) {

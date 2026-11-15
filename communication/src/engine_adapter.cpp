@@ -10,10 +10,18 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <utility>
+#include <sstream>
+#include <algorithm>
 
 namespace comms {
 namespace {
 std::string point(Point p) { return std::to_string(p.row) + "," + std::to_string(p.col); }
+std::string number(double value) {
+    std::ostringstream out;
+    out.precision(17);
+    out << value;
+    return out.str();
+}
 constexpr std::size_t kMaxOutput = 8 * 1024 * 1024;
 }
 
@@ -110,14 +118,21 @@ std::string EngineAdapter::info() const {
     return output;
 }
 
-std::vector<std::string> EngineAdapter::simulation_args(Point start, Point goal) const {
+std::vector<std::string> EngineAdapter::simulation_args(Point start, Point goal,
+                                                        double o2_kg, double battery_wh) const {
+    // The layer 2 CLI requires positive capacities. A depleted resource uses
+    // a tiny positive value so the engine can return an EVA_ABORT projection.
+    o2_kg = std::max(o2_kg, 1e-12);
+    battery_wh = std::max(battery_wh, 1e-12);
     return {engine_path_, "sim", "--dir", data_dir_, "--start", point(start),
-            "--goal", point(goal), "--path"};
+            "--goal", point(goal), "--o2-capacity", number(o2_kg),
+            "--battery-capacity", number(battery_wh), "--path"};
 }
-std::string EngineAdapter::simulate(Point start, Point goal) const {
-    return run(simulation_args(start, goal));
+std::string EngineAdapter::simulate(Point start, Point goal, double o2_kg, double battery_wh) const {
+    return run(simulation_args(start, goal, o2_kg, battery_wh));
 }
-void EngineAdapter::start_simulation(EngineJob& job, Point start, Point goal) const {
-    job.start(simulation_args(start, goal));
+void EngineAdapter::start_simulation(EngineJob& job, Point start, Point goal,
+                                     double o2_kg, double battery_wh) const {
+    job.start(simulation_args(start, goal, o2_kg, battery_wh));
 }
 } // namespace comms

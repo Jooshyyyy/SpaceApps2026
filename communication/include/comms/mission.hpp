@@ -19,8 +19,12 @@ class Mission {
 public:
     using Simulator = std::function<std::string(Point start, Point goal)>;
 
-    Mission(Point refuge, Point selected_goal, Simulator simulator = {});
+    Mission(Point refuge, Point selected_goal, Simulator simulator = {},
+            double o2_capacity_kg = 1.20, double battery_capacity_wh = 250.0);
     void accept_simulation(std::string candidate);
+    // Commits only the outbound consumption of a completed movement from the
+    // last accounted position. Resources never increase during an EVA.
+    void accept_movement(const std::string& candidate);
     Point route_target() const;
 
     // Marks ROUTE_STALE before invoking the engine. On failure the last good
@@ -38,6 +42,11 @@ public:
     bool route_stale() const { return route_stale_; }
     const std::string& simulation_json() const { return simulation_json_; }
     double altitude_origin_m() const { return altitude_origin_m_; }
+    double o2_remaining_kg() const { return o2_remaining_kg_; }
+    double battery_remaining_wh() const { return battery_remaining_wh_; }
+    double cumulative_dose_msv() const { return cumulative_dose_msv_; }
+    double projected_o2_fraction() const { return o2_fraction_; }
+    double projected_battery_fraction() const { return batt_fraction_; }
 
     TelemetryFrame telemetry(std::uint16_t seq, std::uint32_t t_ms, double dy_m,
                              double dx_m) const;
@@ -53,6 +62,11 @@ private:
     bool route_stale_ = false;
     bool has_simulation_ = false;
     std::string simulation_json_;
+    double initial_o2_kg_ = 0.0;
+    double initial_battery_wh_ = 0.0;
+    double o2_remaining_kg_ = 0.0;
+    double battery_remaining_wh_ = 0.0;
+    double cumulative_dose_msv_ = 0.0;
     double o2_fraction_ = 0.0;
     double batt_fraction_ = 0.0;
     double dose_msv_ = 0.0;

@@ -15,6 +15,10 @@ make -C communication
   --start 500,500 --goal 600,650 --port 8765
 ```
 
+For a self-running accelerated demonstration, add `--demo-step-ms 250`. The
+bus then advances one route cell every 250 ms. Omitting the option (or using
+zero) keeps production behavior: positions must come from the client.
+
 Startup prints a JSON `listening` event on stdout. Connect a **native** client to
 `ws://127.0.0.1:8765/`. For an Android device connected by USB:
 
@@ -37,12 +41,14 @@ There is no SharedArrayBuffer requirement on native Flutter.
 3. Binary frames at 10 Hz, exactly as specified in
    [`../docs/telemetry-frame.md`](../docs/telemetry-frame.md).
 
-**Simulation, not live suit sensors:** oxygen, battery, dose and TTR are planning
-projections from the latest layer 2 round-trip simulation, not measurements or
-an accumulated mission resource model. Oxygen/battery are projected remaining
-at the objective; dose is projected for the whole trip; TTR is the engine's
-inbound-leg estimate. Positions are supplied by explicit controls; the bus does
-not fabricate astronaut movement. Repeated publications do not consume tanks.
+**Simulation, not live suit sensors:** oxygen, battery, dose and TTR are model
+outputs rather than suit measurements. Layer 3 accumulates the resources spent
+between accepted positions and passes what remains into every new layer 2
+projection. Oxygen/battery are projected remaining at the objective, expressed
+against the capacities at EVA start; dose combines accumulated travel dose and
+the current round-trip projection. TTR is the engine's inbound-leg estimate.
+Positions normally come from explicit controls; only `--demo-step-ms` enables
+synthetic route following. Repeated 10 Hz publications do not consume tanks.
 When an emergency targets the refuge, the outbound path is the evacuation path;
 its `outbound.sim.time_s` is the evacuation ETA. The frame's TTR retains the
 engine's inbound-leg convention, and is not relabeled as a live evacuation ETA.
@@ -69,8 +75,9 @@ Send each JSON object as a single, complete, masked text WebSocket message:
   not weather/radiation measurements inferred from absent data.
 - `comms_lost` is an externally supplied status bit. One client disconnecting
   does not imply the entire mission link is lost.
-- A newer accepted route command supersedes the pending calculation. The
-  previous engine child is terminated and reaped; its result is never admitted.
+- A newer accepted route command does not terminate the calculation in flight.
+  Its result is discarded if stale, then only the newest requested state is
+  calculated. This prevents continuous position updates from starving routing.
 - Accepted controls get `event_ack`. All connected clients get successful
   `route_update` messages. Unknown/out-of-range/malformed controls return
   `error` without changing mission state, stored grids or the plan revision.

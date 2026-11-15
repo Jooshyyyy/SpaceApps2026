@@ -274,6 +274,48 @@ class BusTest(unittest.TestCase):
         self.assertEqual(c.until('route_update')['cause'], 'position')
         c.telemetry(lambda frame: not frame[11] & 32)
 
+    def test_rapid_positions_coalesce_to_the_latest_without_starvation(self):
+        c = self.client()
+        c.until('route_update')
+        (self.data / 'slow').touch()
+        for row, col in [(1, 1), (2, 2), (3, 3)]:
+            c.send({'type': 'position', 'row': row, 'col': col})
+            self.assertEqual(c.until('event_ack')['event'], 'position')
+        update = c.until('route_update', timeout=7)
+        self.assertEqual(update['cause'], 'position')
+        self.assertEqual(update['result']['start'], {'row': 3, 'col': 3})
+        frame = c.telemetry(lambda frame: not frame[11] & 32)
+        self.assertEqual(frame[4:6], (3, 3))
+
+    def test_demo_mode_advances_without_client_position_controls(self):
+        proc = subprocess.Popen(
+            [str(BUS), '--dir', str(self.data), '--engine', str(self.wrapper),
+             '--port', '0', '--start', '0,0', '--goal', '4,4',
+             '--demo-step-ms', '50'],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        client = None
+        try:
+            ready, _, _ = select.select([proc.stdout], [], [], 5)
+            self.assertTrue(ready, 'demo bus did not become ready')
+            event = json.loads(proc.stdout.readline())
+            client = Client(event['port'])
+            client.until('route_update')
+            frame = client.telemetry(lambda value: value[4] != 0 or value[5] != 0)
+            self.assertNotEqual(frame[4:6], (0, 0))
+            self.assertIsNone(proc.poll())
+        finally:
+            if client is not None:
+                client.close()
+            if proc.poll() is None:
+                proc.terminate()
+            try:
+                proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+            proc.stdout.close()
+            proc.stderr.close()
+
     def test_engine_timeout_is_bounded_without_losing_clients(self):
         c = self.client()
         c.until('route_update')

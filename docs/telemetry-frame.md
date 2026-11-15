@@ -56,11 +56,12 @@ bits.
 
 Clients render flags; they do not derive their own alert decisions.
 
-PLSS fields are explicitly `planned_projection` values from the latest engine
-round-trip simulation, not measured suit sensors or an incremental mission
-resource model. Position comes from controls. Remaining oxygen/battery are
-projected at the objective, dose is projected for the whole round trip and TTR
-uses the engine's inbound-leg convention. During evacuation the outbound leg
+PLSS fields are explicitly model projections, not measured suit sensors. Layer
+3 accumulates consumption between accepted positions; each new layer 2 plan
+starts with those remaining resources. Oxygen/battery are projected at the
+objective and encoded relative to the capacities at EVA start. Dose combines
+the accumulated movement dose with the planned round trip, and TTR uses the
+engine's inbound-leg convention. During evacuation the outbound leg
 is the route to the refuge; use `outbound.sim.time_s` from the JSON plan as its
 ETA. Repeated 10 Hz publication does not itself consume resources.
 
@@ -92,10 +93,13 @@ initial refuge elevation, reported as `altitude_origin_m`.
 ### Server route update
 
 ```json
-{"type":"route_update","cause":"initial","revision":1,"result":{"ok":true,"found":true}}
+{"type":"route_update","cause":"initial","revision":1,"resources":{"o2_remaining_kg":1.2,"battery_remaining_wh":250,"cumulative_dose_msv":0,"projected_o2_fraction_of_initial":0.98,"projected_battery_fraction_of_initial":0.97},"result":{"ok":true,"found":true}}
 ```
 
 `result` is the complete unmodified output of `eva_engine sim ... --path`.
+`resources` is layer 3's persistent EVA ledger. Its projected fractions use the
+capacities at EVA start, unlike the engine result whose capacity arguments are
+the resources remaining when that particular calculation begins.
 Causes include `initial`, `position`, `set_goal`, `storm`, `storm_clear`,
 `radiation_peak` and `radiation_peak_clear`. Server errors use
 `{"type":"error","error":"...","revision":1,"position":{"row":500,"col":500}}`.
@@ -117,9 +121,11 @@ peak sets its alert bit, marks the route stale and recalculates an evacuation
 from the current position to the initial refuge. Clearing an emergency restores
 the selected goal when no other emergency remains. `comms_lost` only changes
 its alert bit. Every accepted control receives an `event_ack` message.
-New accepted route commands supersede pending calculations. The last good plan
-remains available while recalculating or after a failure; stale flags tell the
-client that its projections may not correspond to the current position.
+New accepted route commands are coalesced without killing the engine process in
+flight. Obsolete results are discarded and the newest state is calculated next.
+The last good plan remains available while recalculating or after a failure;
+stale flags tell the client that its projections may not correspond to the
+current position.
 
 ## Process boundary
 
