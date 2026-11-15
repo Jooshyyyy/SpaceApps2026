@@ -1,0 +1,21 @@
+# --- Raw NASA data: 5.4 GB, never commit -------------------------------
+*.tif
+*.tiff
+Gale_DEM_SMG_1m.tif
+
+# --- Generated binaries: regenerate with scripts/ingest.py --------------
+data/processed/*.bin
+data/processed/*.f32
+data/processed/*.u8
+
+# --- Python -------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# --- Editors / OS -------------------------------------------------------
+.DS_Store
+.idea/
+.vscode/

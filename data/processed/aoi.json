@@ -1,0 +1,84 @@
+{
+  "format": "mars-eva-aoi/1",
+  "name": "lower-mount-sharp-nw-flank",
+  "generated_by": "scripts/ingest.py",
+  "source": {
+    "path": "Gale_DEM_SMG_1m.tif",
+    "bytes": 5775684529,
+    "width": 36000,
+    "height": 40100,
+    "bigtiff": true,
+    "rows_per_strip": 1,
+    "nodata": -3.402823e+38,
+    "sha256": "d85e36126a366d68339d571b474319aad85d8ea32cc157bd8e3d330b036edd68"
+  },
+  "crs": {
+    "name": "GCS_Mars_2000",
+    "ellipsoid": "Mars_2000_IAU_IAG",
+    "equatorial_radius_m": 3396190.0,
+    "prime_meridian": "Reference_Meridian"
+  },
+  "aoi": {
+    "row0": 24000,
+    "col0": 28000,
+    "rows": 1000,
+    "cols": 1000,
+    "bbox_lonlat": {
+      "west": 137.59484806806793,
+      "south": -4.670728178598322,
+      "east": 137.61171867292606,
+      "north": -4.653857573740208
+    },
+    "cell_size_m": {
+      "dy": 0.9999999999999426,
+      "dx": 0.9966910958212368
+    }
+  },
+  "grids": {
+    "elevation": {
+      "file": "elevation.bin",
+      "dtype": "float32",
+      "unit": "m",
+      "order": "row-major",
+      "bytes": 4000000,
+      "nodata": -3.402823e+38
+    },
+    "slope": {
+      "file": "slope.bin",
+      "dtype": "float32",
+      "unit": "deg",
+      "order": "row-major",
+      "bytes": 4000000,
+      "nodata": "NaN"
+    },
+    "cost": {
+      "file": "cost.bin",
+      "dtype": "uint8",
+      "unit": "relative",
+      "order": "row-major",
+      "bytes": 1000000,
+      "encoding": {
+        "0": "no data",
+        "1": "flattest traversable",
+        "254": "steepest traversable",
+        "255": "impassable (slope above threshold)"
+      }
+    }
+  },
+  "policy": {
+    "max_slope_deg": 20.0,
+    "cost_rule": "cost = 1 + round(253 * clip(slope, 0, max_slope_deg) / max_slope_deg)",
+    "edge_handling": "one-sided differences at the raster border"
+  },
+  "stats": {
+    "elevation_min_m": -3867.677490234375,
+    "elevation_max_m": -3523.08837890625,
+    "relief_m": 344.589111328125,
+    "slope_mean_deg": 15.00383315246316,
+    "slope_max_deg": 75.96891410180018,
+    "cells_total": 1000000,
+    "cells_nodata": 0,
+    "cells_impassable": 184585,
+    "fraction_impassable": 0.184585
+  }
+}
