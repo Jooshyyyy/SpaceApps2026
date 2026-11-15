@@ -762,6 +762,8 @@ def make_handler(serial: SerialPort, bus: BusClient, data_dir: Path, busproc: "B
                 return self._tile(path, m)
             if path in VENDOR:
                 return self._vendor(path)
+            if PUBLICO and (path.startswith("/op/") or path in ("/reloj/stream", "/plan")):
+                return self._reply(404, {"error": "not found"})  # la nube es solo vista: nadie opera desde internet
             if path.startswith("/op/"):  # link del operador: guarda el token en una cookie y entra
                 tok, _, dest = path[4:].partition("/")
                 if not hmac.compare_digest(tok.encode(), token.encode()):
@@ -777,7 +779,7 @@ def make_handler(serial: SerialPort, bus: BusClient, data_dir: Path, busproc: "B
                     return self._reply(403, {"error": "token del reloj inválido"})
                 return self._stream()
             if path == "/yo":
-                return self._reply(200, {"operador": self._operator()})
+                return self._reply(200, {"operador": False if PUBLICO else self._operator()})
             if path == "/":  # la tablet entra directo al prototipo
                 self.send_response(302)
                 self.send_header("Location", "/app.html")
@@ -849,6 +851,8 @@ def make_handler(serial: SerialPort, bus: BusClient, data_dir: Path, busproc: "B
         def do_POST(self):
             if self._limited():
                 return
+            if PUBLICO and self.path != "/eva/estado":  # nube solo vista: lo único que entra es el espejo de la laptop
+                return self._deny()
             if self.path == "/reloj/boton":  # botón del reloj que reenvía el puente de la laptop
                 if not self._watch_ok():
                     return self._reply(403, {"error": "token del reloj inválido"})
