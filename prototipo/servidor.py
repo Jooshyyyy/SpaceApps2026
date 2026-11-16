@@ -564,8 +564,9 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 VENDOR_DIR = Path(__file__).resolve().parent / "vendor"  # Leaflet y three.js servidos desde la laptop (sin internet en la tablet)
 VENDOR = {"/vendor/" + str(p.relative_to(VENDOR_DIR)) for p in VENDOR_DIR.rglob("*") if p.is_file()} if VENDOR_DIR.is_dir() else set()
 TILE_DIR = Path(__file__).resolve().parent / "tile_cache"
-TILE_RE = _re.compile(r"^/tiles/Mars/EQ/curiosity_hirise_mosaic/1\.0\.0/default/default028mm/(\d{1,2})/(\d{1,6})/(\d{1,6})\.png$")
-STATIC = {"/app.html", "/mission.json", "/logo_ares.png", "/oled_logo.png",
+TILE_RE = _re.compile(r"^/tiles/Mars/EQ/(curiosity_hirise_mosaic|Mars_Viking_MDIM21_ClrMosaic_global_232m)/1\.0\.0/default/default028mm/(\d{1,2})/(\d{1,6})/(\d{1,6})\.(png|jpg)$")
+TILE_EXT = {"curiosity_hirise_mosaic": "png", "Mars_Viking_MDIM21_ClrMosaic_global_232m": "jpg"}  # HiRISE de Gale + Marte entero (Viking, para la intro)
+STATIC = {"/app.html", "/mission.json", "/logo_ares.png", "/oled_logo.png", "/mars_globe.jpg",
           "/manifest.webmanifest", "/sw.js", "/icons/ares-192.png", "/icons/ares-512.png",  # app instalable (PWA)
           "/pov/sol4530.jpg", "/pov/sol4544.jpg", "/pov/sol4582.jpg", "/pov/sol4612.jpg"}  # + panorámicas Navcam de Curiosity  # lo único que se sirve de esta carpeta
 TOKEN_FILE = HERE / ".token_operador"  # no se sirven ni se suben a git
@@ -724,7 +725,11 @@ def make_handler(serial: SerialPort, bus: BusClient, data_dir: Path, busproc: "B
             super().end_headers()
 
         def _tile(self, path, m):
-            f = TILE_DIR.joinpath(*m.groups()).with_suffix(".png")
+            layer, z, y, x, ext = m.groups()
+            if TILE_EXT[layer] != ext:
+                return self._reply(404, {"error": "tile not available"})
+            base = TILE_DIR if layer == "curiosity_hirise_mosaic" else TILE_DIR / "viking"
+            f = base.joinpath(z, y, x).with_suffix("." + ext)
             if not f.exists():
                 try:
                     req = urllib.request.Request("https://trek.nasa.gov" + path, headers={"User-Agent": "ARES-prototype"})
@@ -737,7 +742,7 @@ def make_handler(serial: SerialPort, bus: BusClient, data_dir: Path, busproc: "B
                 tmp.replace(f)
             body = f.read_bytes()
             self.send_response(200)
-            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Type", "image/png" if ext == "png" else "image/jpeg")
             self.send_header("Cache-Control", "public, max-age=86400")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()

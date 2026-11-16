@@ -1,12 +1,12 @@
 // ARES: service worker de la app instalable. Guarda la interfaz, las librerías, las capas y el mapa
 // para que abra rápido y aguante cortes de red. Nunca guarda la API en vivo (EVA, reloj, bus).
-const V = 'ares-v1';
+const V = 'ares-v2';
 const SHELL = ['app.html', 'mission.json', 'logo_ares.png', 'oled_logo.png', 'manifest.webmanifest',
   'vendor/leaflet/leaflet.js', 'vendor/leaflet/leaflet.css', 'vendor/three/build/three.module.js',
   'vendor/three/examples/jsm/controls/MapControls.js', 'vendor/three/examples/jsm/controls/OrbitControls.js',
-  'slope.u8', 'radiation.u8', 'thermal.u8', 'elevation.bin'];
+  'mars_globe.jpg', 'slope.u8', 'radiation.u8', 'thermal.u8', 'elevation.bin'];
 const FRESH = /^\/(app\.html|mission\.json|manifest\.webmanifest|[a-z]+\.u8|elevation\.bin)$/;  // red primero, caché si no hay red
-const KEEP = /^\/(tiles|vendor|pov|icons)\/|^\/(logo_ares|oled_logo)\.png$/;                     // caché primero (no cambian)
+const KEEP = /^\/(tiles|vendor|pov|icons)\/|^\/(logo_ares|oled_logo)\.png$|^\/mars_globe\.jpg$/;                     // caché primero (no cambian)
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(V).then(c => Promise.all(SHELL.map(u => c.add(u).catch(() => {})))).then(() => self.skipWaiting()));
